@@ -92,6 +92,10 @@ describe('docs/data-model.html against the code', () => {
       'willBeLogged',
       'reopenCandidate',
       'reopenQuestion',
+      'xmpPacket',
+      'srgbIccProfile',
+      'keepSupported',
+      'wrapText',
     ];
     for (const name of documented) {
       expect(typeof logic[name], name).toBe('function');

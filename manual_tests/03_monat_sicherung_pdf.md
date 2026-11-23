@@ -91,3 +91,18 @@ Alle Daten sind erfunden. Bisher in keinem echten Browser durchgespielt.
 - Nach Schritt 1 ist der Tag noch da.
 - Nach Schritt 2 fragt die App nach dem Passwort („Gesperrt“, „Entsperren“). Alle Texte sind deutsch.
 - Wird der Browserspeicher gelöscht, sind die Daten weg; nur die Sicherungsdatei rettet sie.
+
+## MT-19: PDF-Prüfung (für jemanden mit PDF/A-Prüfprogramm)
+
+**Voraussetzung:** Ein PDF aus MT-09 und ein PDF/A-Prüfprogramm (zum Beispiel veraPDF, Profil „PDF/A-3B“).
+
+**Schritte**
+
+1. Das PDF im Prüfprogramm prüfen.
+2. Dasselbe PDF in einem normalen Betrachter öffnen und den Anhang suchen („Anlagen“).
+
+**Erwartet**
+
+- Bisher **nicht geprüft**: Das PDF ist nach PDF/A-3b gebaut, aber mit keinem Prüfprogramm validiert. Das Ergebnis (bestanden oder die gemeldeten Regelverstöße) bitte festhalten.
+- Im Betrachter erscheinen Umlaute, ß, „ “ – und € richtig; Zeichen außerhalb des deutschen Alphabets stehen als „?“ in der Tabelle (der Anhang hat den echten Text).
+- Der Anhang `zeiterfassung-JJJJ-MM.json` ist vorhanden; seine Prüfsumme (SHA-256, zum Beispiel mit `certutil -hashfile <Datei> SHA256`) stimmt mit der im PDF-Fuß überein.

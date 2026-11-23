@@ -1,4 +1,3 @@
-import { PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
 import {
   attachmentName,
   emptyBook,
@@ -12,42 +11,10 @@ import {
   wrapText,
 } from '../src/logic/index.ts';
 import { bookWith, day, val } from './helpers.ts';
+import { ASSETS } from './pdfAssets.ts';
+import { inspect } from './pdfRead.ts';
 
 const CREATED = '2026-12-01T06:00:00.000Z';
-
-/** The WinAnsi bytes above Latin-1 that these tests meet. */
-const WIN_ANSI: Record<number, string> = { 0x80: '€', 0x84: '„', 0x93: '“', 0x94: '”', 0x96: '–' };
-
-interface Streams {
-  embedded: { text: string }[];
-  /** Text drawn on the pages (hex strings of the content streams decoded as Latin-1). */
-  shown: string;
-}
-
-async function inspect(bytes: Uint8Array): Promise<{ doc: PDFDocument; streams: Streams }> {
-  const doc = await PDFDocument.load(bytes, { updateMetadata: false });
-  const embedded: { text: string }[] = [];
-  let shown = '';
-  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
-    if (!(obj instanceof PDFRawStream)) continue;
-    const decoded = decodePDFRawStream(obj).decode();
-    if (obj.dict.get(PDFName.of('Type')) === PDFName.of('EmbeddedFile')) {
-      embedded.push({ text: new TextDecoder().decode(decoded) });
-    } else {
-      const content = new TextDecoder('latin1').decode(decoded);
-      for (const m of content.matchAll(/<([0-9A-Fa-f]*)>\s*Tj/g)) {
-        const hex = m[1] ?? '';
-        let line = '';
-        for (let i = 0; i < hex.length; i += 2) {
-          const byte = parseInt(hex.slice(i, i + 2), 16);
-          line += WIN_ANSI[byte] ?? String.fromCharCode(byte);
-        }
-        shown += `${line}\n`;
-      }
-    }
-  }
-  return { doc, streams: { embedded, shown } };
-}
 
 const november = () =>
   val(
@@ -98,7 +65,7 @@ describe('wrapText', () => {
 describe('monthToPdf', () => {
   it('makes a readable PDF with the JSON attached and the sums on the page', async () => {
     const book = november();
-    const bytes = val(await monthToPdf(book, '2026-11', CREATED));
+    const bytes = val(await monthToPdf(book, '2026-11', CREATED, ASSETS));
     expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe('%PDF-');
 
     const { doc, streams } = await inspect(bytes);
@@ -113,12 +80,12 @@ describe('monthToPdf', () => {
     expect(streams.shown).toContain('Mitarbeiter/in: Anna Beispiel');
     expect(streams.shown).toContain('Summe Arbeitszeit: 12:00 Std. an 2 Tag(en)');
     expect(streams.shown).toContain('Mo 23.11.2026');
-    expect(streams.shown).toContain('Ärztin: Büro ß'); // WinAnsi agrees with Latin-1 for these
+    expect(streams.shown).toContain('Ärztin: Büro ß');
     expect(streams.shown).toContain(attachmentName('2026-11'));
   });
 
   it('prints the SHA-256 of the attachment, and it is the hash of the attachment that was read back', async () => {
-    const bytes = val(await monthToPdf(november(), '2026-11', CREATED));
+    const bytes = val(await monthToPdf(november(), '2026-11', CREATED, ASSETS));
     const { streams } = await inspect(bytes);
     const hash = await sha256Hex(streams.embedded[0]?.text ?? '');
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
@@ -126,7 +93,7 @@ describe('monthToPdf', () => {
   });
 
   it('names the attachment and its type in the file', async () => {
-    const bytes = val(await monthToPdf(november(), '2026-11', CREATED));
+    const bytes = val(await monthToPdf(november(), '2026-11', CREATED, ASSETS));
     const raw = new TextDecoder('latin1').decode(bytes);
     expect(raw).toContain('/EmbeddedFiles');
     expect(raw).toContain('zeiterfassung-2026-11.json');
@@ -135,7 +102,7 @@ describe('monthToPdf', () => {
   });
 
   it('keeps the metadata neutral (no library or tool name)', async () => {
-    const bytes = val(await monthToPdf(november(), '2026-11', CREATED));
+    const bytes = val(await monthToPdf(november(), '2026-11', CREATED, ASSETS));
     const raw = new TextDecoder('latin1').decode(bytes);
     expect(raw).not.toMatch(/pdf-lib/i);
     expect(raw).not.toMatch(/claude|anthropic/i);
@@ -143,20 +110,20 @@ describe('monthToPdf', () => {
     expect(doc.getTitle()).toBe('Arbeitszeit November 2026');
     expect(doc.getProducer()).toBe('Zeiterfassung');
     expect(doc.getCreator()).toBe('Zeiterfassung');
-    expect(doc.getAuthor()).toBe('');
+    expect(doc.getAuthor()).toBeUndefined();
     expect(doc.getCreationDate()?.toISOString()).toBe(CREATED);
   });
 
   it('is the same file for the same data (no random parts in what we control)', async () => {
-    const a = val(await monthToPdf(november(), '2026-11', CREATED));
-    const b = val(await monthToPdf(november(), '2026-11', CREATED));
+    const a = val(await monthToPdf(november(), '2026-11', CREATED, ASSETS));
+    const b = val(await monthToPdf(november(), '2026-11', CREATED, ASSETS));
     const stripId = (u: Uint8Array) =>
       new TextDecoder('latin1').decode(u).replace(/\/ID\s*\[[^\]]*\]/, '');
     expect(stripId(a)).toBe(stripId(b));
   });
 
   it('writes an empty month with a note and a zero total', async () => {
-    const bytes = val(await monthToPdf(emptyBook(), '2026-11', CREATED));
+    const bytes = val(await monthToPdf(emptyBook(), '2026-11', CREATED, ASSETS));
     const { streams } = await inspect(bytes);
     expect(streams.shown).toContain('Keine Einträge in diesem Monat.');
     expect(streams.shown).toContain('Summe Arbeitszeit: 0:00 Std. an 0 Tag(en)');
@@ -167,7 +134,7 @@ describe('monthToPdf', () => {
     const days = Array.from({ length: 31 }, (_, i) =>
       day({ date: `2026-12-${String(i + 1).padStart(2, '0')}`, note: 'x'.repeat(200) }),
     );
-    const bytes = val(await monthToPdf(bookWith(...days), '2026-12', CREATED));
+    const bytes = val(await monthToPdf(bookWith(...days), '2026-12', CREATED, ASSETS));
     const { doc, streams } = await inspect(bytes);
     expect(doc.getPageCount()).toBe(1);
     expect(streams.shown).toContain('Summe Arbeitszeit: 248:00 Std. an 31 Tag(en)');
@@ -178,7 +145,7 @@ describe('monthToPdf', () => {
 
   it('does not fail on characters the standard font cannot show', async () => {
     const book = bookWith(day({ note: 'Pause 😀 → ok' }));
-    const bytes = val(await monthToPdf(book, '2026-11', CREATED));
+    const bytes = val(await monthToPdf(book, '2026-11', CREATED, ASSETS));
     const { streams } = await inspect(bytes);
     expect(streams.shown).toContain('Pause ? ? ok');
     expect(streams.embedded[0]?.text).toContain('Pause 😀 → ok'); // the attachment keeps the real text
@@ -211,7 +178,7 @@ describe('monthToPdf', () => {
     };
 
     it('prints date, time, before, after and reason of every change of the month', async () => {
-      const bytes = val(await monthToPdf(withChanges(), '2026-11', CREATED));
+      const bytes = val(await monthToPdf(withChanges(), '2026-11', CREATED, ASSETS));
       const { streams } = await inspect(bytes);
       expect(streams.shown).toContain('Nachträgliche Änderungen');
       expect(streams.shown).toContain('Fr 20.11.2026 – Geändert am 23.11.2026 08:00 UTC');
@@ -229,12 +196,16 @@ describe('monthToPdf', () => {
     });
 
     it('has no such section without changes', async () => {
-      const { streams } = await inspect(val(await monthToPdf(november(), '2026-11', CREATED)));
+      const { streams } = await inspect(
+        val(await monthToPdf(november(), '2026-11', CREATED, ASSETS)),
+      );
       expect(streams.shown).not.toContain('Nachträgliche Änderungen');
     });
 
     it('prints only the changes of the month asked for', async () => {
-      const { streams } = await inspect(val(await monthToPdf(withChanges(), '2026-10', CREATED)));
+      const { streams } = await inspect(
+        val(await monthToPdf(withChanges(), '2026-10', CREATED, ASSETS)),
+      );
       expect(streams.shown).not.toContain('Nachträgliche Änderungen');
     });
 
@@ -250,7 +221,7 @@ describe('monthToPdf', () => {
           ),
         );
       }
-      const bytes = val(await monthToPdf(b, '2026-11', CREATED));
+      const bytes = val(await monthToPdf(b, '2026-11', CREATED, ASSETS));
       const { doc, streams } = await inspect(bytes);
       expect(doc.getPageCount()).toBeGreaterThan(1);
       const n = doc.getPageCount();
@@ -263,7 +234,7 @@ describe('monthToPdf', () => {
   });
 
   it('refuses a bad month', async () => {
-    expect(await monthToPdf(emptyBook(), '2026-13', CREATED)).toEqual({
+    expect(await monthToPdf(emptyBook(), '2026-13', CREATED, ASSETS)).toEqual({
       ok: false,
       reason: 'bad-month',
     });

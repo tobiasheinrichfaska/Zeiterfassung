@@ -12,7 +12,7 @@ prüfen nur, was eine Person sehen muss (Aussehen, Gesten, Dateien, Dialoge).
 ## Stand
 
 Die Bildschirme der Stufe 1 sind gebaut, **aber noch von niemandem in einem echten Browser
-durchgespielt**: Die Fälle MT-02 bis MT-18 sind der erste Durchlauf. Automatisch geprüft sind die
+durchgespielt**: Die Fälle MT-02 bis MT-19 sind der erste Durchlauf. Automatisch geprüft sind die
 Logik, das Lesen und Schreiben im Tresor (Speicher im Arbeitsspeicher), das PDF (zurückgelesen, Anhang
 und Summen) und der Navigationsbaum.
 

@@ -26,6 +26,7 @@ import { canShareFile, downloadFile, shareFile } from '../io/files.ts';
 import { useBookApi } from './bookContext.ts';
 import { DayForm } from './DayForm.tsx';
 import { useAskReason } from './promptContext.ts';
+import { pdfAssets } from './pdfAssets.ts';
 import { styles } from './styles.ts';
 
 export function MonthPage() {
@@ -87,7 +88,7 @@ export function MonthPage() {
     }
     const nowIso = new Date().toISOString();
     try {
-      const pdf = await monthToPdf(book, month, nowIso);
+      const pdf = await monthToPdf(book, month, nowIso, pdfAssets());
       if (!pdf.ok) return showError(reasonText(pdf.reason));
       const name = pdfFileName(month);
       if (share) {
