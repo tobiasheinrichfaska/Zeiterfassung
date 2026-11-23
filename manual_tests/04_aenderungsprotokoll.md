@@ -92,3 +92,20 @@ werden aber protokolliert. Heutige Tage und das Stempeln in Echtzeit werden nich
 - Nach „Entwurf verwerfen“ ist das Formular leer; nach „Speichern“ erscheint der Entwurf nicht mehr.
 - Nach Schritt 5 öffnet der Monat wieder auf dem Tag mit der geänderten Notiz (noch nicht gespeichert).
 - Der Entwurf liegt verschlüsselt im Tresor (nicht lesbar im Browser-Speicher).
+
+## MT-22: Keine Verstöße gegen die Sicherheitsrichtlinie
+
+**Voraussetzung:** Ein Browser mit Entwicklerwerkzeugen (Taste F12), `dist/index.html` geöffnet.
+
+**Schritte**
+
+1. Das Register „Konsole“ öffnen und die Seite neu laden.
+2. Nacheinander: einen Tag stempeln, ein Formular speichern, einen Monat als PDF speichern, eine Sicherung speichern und wieder einspielen, die App-Sperre ein- und ausschalten.
+3. Im Register „Netzwerk“ prüfen, ob außer der Seite selbst etwas geladen oder gesendet wurde.
+
+**Erwartet**
+
+- In der Konsole keine Meldungen wie „Refused to …“ oder „violates the following Content Security Policy directive“.
+- Alles aus Schritt 2 funktioniert, auch die Datei-Downloads (die Datei erscheint im Ordner „Downloads“) und die Darstellung (Abstände, Ränder, Rahmen sind da).
+- Im Register „Netzwerk“ keine Anfragen außer der Seite.
+- Bisher **nicht geprüft**: Die Richtlinie ist gebaut und gegen die Datei geprüft, aber in keinem Browser gelaufen.

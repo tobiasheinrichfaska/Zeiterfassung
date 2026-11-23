@@ -17,6 +17,10 @@ durchgespielt** (siehe `manual_tests/`, MT-01 bis MT-13).
 - [x] **PDF mit eingebettetem JSON** zum Mailen an die digitale Personalakte — `tests/pdf.test.ts`, `tests/report.test.ts` (PDF zurückgelesen: Anhang, Prüfsumme, Summen, Änderungen, neutrale Metadaten)
 - [x] **„Kommen“ nach „Gehen“** öffnet den Tag nach Rückfrage wieder; die Lücke ist Pause — `tests/actions.test.ts`
 - [x] **Änderungsprotokoll** für abgelaufene Tage (Nachtrag, Ändern, Verschieben, Löschen), im Monat und im Bericht — `tests/changes.test.ts`, `tests/pdf.test.ts`
+- [x] **Sicherung verschlüsselt** (Passwort), unverschlüsselt nur nach ausdrücklicher Wahl; Einlesen beider Formen — `tests/backupCrypto.test.ts`
+- [x] **Angefangenes Formular bleibt erhalten** (Speicher + Tresor-Fach) und die Seite der Räder wird gemerkt — `tests/draft-lastpage.test.ts`
+- [x] **Strenge Content-Security-Policy** in der gebauten Datei — `tests/build/` (im Browser ungeprüft)
+- [x] **PDF nach PDF/A-3b gebaut** (nicht validiert) — `tests/pdfa.test.ts`
 - [x] **Aufbewahrung:** nur exportierte Monate werden auf Bestätigung gelöscht — `tests/backup-retention.test.ts`
 
 | Path                                             | Impact                                      | Audit Check                                      |
@@ -25,5 +29,6 @@ durchgespielt** (siehe `manual_tests/`, MT-01 bis MT-13).
 | PDF-Summe und JSON-Anhang stimmen überein        | Personalakte bekommt widersprüchliche Daten | `tests/pdf.test.ts`                              |
 | Sicherung zurückspielen                          | Verlust der Zeiten bei Gerätewechsel        | `tests/backup-retention.test.ts`                 |
 | Kein Löschen nicht exportierter Monate           | Datenverlust                                | `tests/backup-retention.test.ts`                 |
+| Falsches Passwort öffnet keine Sicherung         | Datenschutz                                 | `tests/backupCrypto.test.ts`                     |
 | Unlesbarer Tresorinhalt wird nicht überschrieben | Datenverlust                                | `tests/vault.test.ts`                            |
 | Keine Konsolenfehler beim Laden                  | App instabil                                | Browser, manuell (`manual_tests/` MT-01)         |
