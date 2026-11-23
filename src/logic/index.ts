@@ -6,3 +6,5 @@ export * from './summary.ts';
 export * from './xml.ts';
 export * from './backup.ts';
 export * from './retention.ts';
+export * from './store.ts';
+export * from './texts.ts';
