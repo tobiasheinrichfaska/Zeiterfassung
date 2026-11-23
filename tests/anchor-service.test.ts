@@ -271,6 +271,20 @@ describe('the relay adapter', () => {
     expect((await service.anchor(PROBE_HASH)).ok).toBe(true);
   });
 
+  it('does not stretch the pause when the clock goes back (a pause is never longer than an hour)', async () => {
+    let now = 5_000_000;
+    const r = relay(
+      services('freetsa'),
+      json(429, {}, { 'Retry-After': '30' }),
+      json(200, answer({ serial: realSerial })),
+    );
+    const service = createRelayService(RELAY, { fetch: r.fn, now: () => now });
+    expect((await service.anchor(PROBE_HASH)).ok).toBe(false);
+    now -= 3 * 3_600_000; // the device clock is set back by three hours
+    const again = await service.anchor(PROBE_HASH);
+    expect(again, JSON.stringify(again)).toMatchObject({ ok: true });
+  });
+
   it('takes a missing or silly Retry-After as 60 seconds and never more than an hour', async () => {
     for (const [header, expected] of [
       [undefined, 60],

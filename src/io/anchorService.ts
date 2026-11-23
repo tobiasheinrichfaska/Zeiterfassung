@@ -25,7 +25,10 @@ export interface RelayOptions {
   fetch?: typeof fetch;
   /** Deadline of one call. The relay itself waits up to 10 s for the service: stay well above. */
   timeoutMs?: number;
-  /** Milliseconds now (for the pause after a 429). */
+  /**
+   * Milliseconds on a clock for the pause after a 429. Default: the monotonic `performance.now()`, which a
+   * change of the device clock does not move (a clock set back must not stretch the pause).
+   */
   now?: () => number;
   /** The services the app trusts: id → PEM text of the trust anchors. */
   trusted?: ReadonlyMap<string, { anchors: string[] }>;
@@ -60,11 +63,11 @@ const VERIFY_TEXTS: Record<string, string> = {
 export function createRelayService(base: string, options: RelayOptions = {}): AnchorService {
   const doFetch = options.fetch ?? ((input, init) => fetch(input, init));
   const timeoutMs = options.timeoutMs ?? 20_000;
-  const now = options.now ?? Date.now;
+  const now = options.now ?? (() => performance.now());
   const trusted = options.trusted ?? trustedServices();
   const verify = options.verify ?? verifyTimestampToken;
   const root = base.replace(/\/+$/, '');
-  let blockedUntil = 0;
+  let blockedUntil = -Infinity;
 
   type Reply =
     | { kind: 'reply'; status: number; headers: Headers; body: unknown }
@@ -129,6 +132,8 @@ export function createRelayService(base: string, options: RelayOptions = {}): An
     async anchor(hashHex) {
       const hash = hexToBytes(hashHex);
       if (!hash) return { ok: false, reason: 'bad-response', detail: 'Hash' };
+      // a pause longer than the longest one ever set means the clock went back: forget it
+      if (blockedUntil - now() > MAX_RETRY_SECONDS * 1000) blockedUntil = -Infinity;
       if (now() < blockedUntil) {
         const wait = Math.ceil((blockedUntil - now()) / 1000);
         return { ok: false, reason: 'rate-limited', detail: `bitte in ${wait} s erneut versuchen` };

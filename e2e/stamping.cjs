@@ -270,13 +270,38 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await sleep(62000);
   await page.clock.fastForward('01:30');
   await pressAnchor();
+  st = await state();
+  ok(
+    'device clock 25 h ahead: the token (true time) still covers the old stamp, no skew refusal',
+    st.s === 'ok' && (await alertText()) === '',
+    st.t + ' | ' + (await alertText()),
+  );
+  await dismiss();
+  // the device clock goes back by 3 hours: a token that is "from the future" is refused (anchor-skew)
+  await page.clock.setSystemTime(new Date(Date.now() - 3 * 3600e3));
+  // a stamp made now carries the set-back device time: save a day through the form
+  const devToday = await page.evaluate(() => new Date().toISOString().slice(0, 10));
+  await go(page, 'Tag eingeben');
+  await page.getByLabel('Datum').fill(devToday);
+  await page.getByLabel('Kommen', { exact: true }).fill('00:00');
+  await page.getByLabel(/^Gehen \(leer/).fill('23:59');
+  await btn('Speichern').click();
+  await page.waitForTimeout(500);
+  await toMonth();
+  await sect.getByText(/^Externe Zeitstempel/).click();
+  const n0 = await anchorCount();
+  await pressAnchor();
   a = await alertText();
   ok(
-    'relay time vs device clock 25 h off: refused (anchor-skew)',
-    /passt nicht zur Geräteuhr/.test(a),
+    'device clock 3 h behind the service: refused (anchor-skew), no anchor added',
+    /passt nicht zur Geräteuhr/.test(a) && (await anchorCount()) === n0,
     a,
   );
   await dismiss();
+  st = await state();
+  ok('status stays due after the refusal', st.s === 'due' || st.s === 'overdue', st.t);
+  const skewRow = await sect.locator('summary', { hasText: 'Stempelkette' }).count();
+  ok('chain section present', skewRow === 1);
 
   console.log('LOG', JSON.stringify(log));
   fs.writeFileSync(OUT + '/results.txt', res.join('\n'));

@@ -183,7 +183,7 @@ const text = (p) => p.evaluate(() => document.body.innerText);
     /Geändert/.test(c) && /16:00/.test(c) && /17:00/.test(c),
     c.slice(-300),
   );
-  const nBefore = (c.match(/Begründung/g) || []).length;
+  const nBefore = (c.match(/vorher/g) || []).length;
   // unchanged save: no entry
   await edit('22.11', async (s) => {
     await s.getByRole('button', { name: 'Änderung speichern' }).click();
@@ -193,7 +193,7 @@ const text = (p) => p.evaluate(() => document.body.innerText);
   c = await changesText();
   ok(
     'MT-16/4: saving unchanged adds no entry',
-    (c.match(/vorher/g) || []).length === (nBefore ? nBefore : 1) || true,
+    (c.match(/vorher/g) || []).length === nBefore,
     'entries: ' + (c.match(/vorher/g) || []).length,
   );
   const nEntries0 = (c.match(/vorher/g) || []).length;
@@ -206,7 +206,7 @@ const text = (p) => p.evaluate(() => document.body.innerText);
   c = await changesText();
   ok(
     'MT-16/2: move gives Gelöscht (verschoben nach) and Nachgetragen (verschoben von)',
-    /Gelöscht \(verschoben nach/.test(c) && /Nachgetragen am[^(]*\(verschoben von/.test(c),
+    /Gelöscht am[^(]*\(verschoben nach/.test(c) && /Nachgetragen am[^(]*\(verschoben von/.test(c),
     c.slice(-420),
   );
   await edit('21.11', async (s) => {

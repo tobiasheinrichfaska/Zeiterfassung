@@ -13,8 +13,11 @@ prüfen nur, was eine Person sehen muss (Aussehen, Gesten, Dateien, Dialoge).
 
 Die Bildschirme der Stufe 1 sind gebaut. Ein Teil der Fälle (MT-01 bis MT-06, MT-08 bis MT-10, MT-12,
 MT-13, MT-14, MT-15, MT-20, MT-21, MT-22 und die Stempelkette aus MT-23/24) lief am 2026-11-23 automatisiert in
-headless Chromium (mit Fenstergröße eines Handys, über `http://localhost`, Start und Neuladen auch über `file://`); **auf einem echten Gerät und
-in anderen Browsern hat sie noch niemand durchgespielt**, ebenso nicht MT-07, MT-11, MT-16 bis MT-19 und MT-25 bis MT-28. Automatisch geprüft sind die
+headless Chromium (mit Fenstergröße eines Handys, über `http://localhost`, Start und Neuladen auch über `file://`).
+Ein zweiter Durchlauf am selben Tag (`e2e/README.md`) deckte MT-11, MT-16, MT-17, MT-18, MT-25 und MT-26 ab, MT-25/26
+gegen einen **lokalen** Zeitstempel-Weiterreicher mit Test-PKI statt eines echten Dienstes (Abweichungen: kein echter Dienst, andere
+Wurzelzertifikate). **Auf einem echten Gerät und in anderen Browsern hat sie noch niemand durchgespielt**, ebenso nicht MT-07,
+MT-19, MT-27 und MT-28 und nichts mit einem echten Zeitstempeldienst. Automatisch geprüft sind die
 Logik, das Lesen und Schreiben im Tresor (Speicher im Arbeitsspeicher), das PDF (zurückgelesen, Anhang
 und Summen) und der Navigationsbaum.
 
