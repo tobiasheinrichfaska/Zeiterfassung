@@ -14,7 +14,8 @@ import { fail, ok, type MonthKey, type Result, type TimeBook } from './model.ts'
 import { changeText, changesOfMonth, type ChangeText } from './changes.ts';
 import { monthSummary } from './summary.ts';
 import { formatDuration, formatIsoDate, isMonthKey } from './time.ts';
-import { attachmentName, monthToJson, sha256Hex } from './report.ts';
+import { attachmentName, monthToJson } from './report.ts';
+import { sha256Hex } from './sha256.ts';
 import { monthLabel, rowTexts } from './view.ts';
 import { keepSupported } from './chars.ts';
 import { srgbIccProfile } from './icc.ts';
@@ -192,8 +193,8 @@ export function xmpPacket(info: {
 }
 
 /** A deterministic 16-byte document ID from what the file is made of (hex, 32 digits). */
-async function documentId(...parts: string[]): Promise<string> {
-  return (await sha256Hex(parts.join('\n'))).slice(0, 32);
+function documentId(...parts: string[]): string {
+  return sha256Hex(parts.join('\n')).slice(0, 32);
 }
 
 /**
@@ -212,7 +213,7 @@ export async function monthToPdf(
   if (!isMonthKey(month)) return fail('bad-month');
   const json = monthToJson(book, month, createdIso);
   if (!json.ok) return json;
-  const hash = await sha256Hex(json.value);
+  const hash = sha256Hex(json.value);
   const layout = monthLayout(book, month, createdIso, hash);
   const created = new Date(createdIso);
   const subject = 'Monatszusammenfassung Arbeitszeit';
@@ -398,7 +399,7 @@ export async function monthToPdf(
   catalog.set(PDFName.of('Metadata'), metadataRef);
 
   // document ID (two equal halves: the file was made once)
-  const id = PDFHexString.of(await documentId(hash, createdIso, layout.title));
+  const id = PDFHexString.of(documentId(hash, createdIso, layout.title));
   const ids = PDFArray.withContext(context);
   ids.push(id);
   ids.push(id);

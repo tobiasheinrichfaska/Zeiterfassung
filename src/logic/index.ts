@@ -4,6 +4,8 @@ export * from './validate.ts';
 export * from './actions.ts';
 export * from './changes.ts';
 export * from './summary.ts';
+export * from './canonical.ts';
+export * from './sha256.ts';
 export * from './report.ts';
 export * from './backup.ts';
 export * from './draft.ts';
