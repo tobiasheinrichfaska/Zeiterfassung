@@ -125,11 +125,12 @@ function readStamp(v: unknown): Stamp | null {
   return v as unknown as Stamp;
 }
 
-const ANCHOR_KEYS = ['tsaId', 'genTime', 'coveredN', 'headHash', 'token'];
+const ANCHOR_KEYS = ['tsaId', 'genTime', 'serial', 'coveredN', 'headHash', 'token'];
 
 function readAnchor(v: unknown): Anchor | null {
   if (!isObject(v) || !hasOnly(v, ANCHOR_KEYS)) return null;
   if (typeof v.tsaId !== 'string' || typeof v.genTime !== 'string') return null;
+  if (typeof v.serial !== 'string' || !/^[0-9a-f]{1,64}$/.test(v.serial)) return null;
   if (!Number.isInteger(v.coveredN) || !isHash(v.headHash) || typeof v.token !== 'string') {
     return null;
   }

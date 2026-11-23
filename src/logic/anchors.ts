@@ -65,10 +65,14 @@ export function anchorRequest(book: TimeBook): AnchorRequest | undefined {
 }
 
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+const BASE64URL = /^[A-Za-z0-9_-]+$/;
+const SERIAL = /^[0-9a-f]+$/;
+const SERVICE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 
 /**
  * Takes an anchor into the book after checking it strictly: it must cover a stamp that exists and
- * is newer than what is covered, its hash must be that stamp's hash, the token must be Base64 within the
+ * is newer than what is covered, its hash must be that stamp's hash, it carries the serial number of the
+ * token (lower-case hex), the token must be Base64 within the
  * size limit, and the time of the token must fit the device clock within the tolerance (not long before
  * the stamp it covers, not in the future). A refused anchor changes nothing.
  */
@@ -81,6 +85,9 @@ export function addAnchor(book: TimeBook, anchor: Anchor, nowIso: string): Resul
     Number.isNaN(Date.parse(anchor.genTime)) ||
     !Number.isInteger(anchor.coveredN) ||
     !isHash(anchor.headHash) ||
+    typeof anchor.serial !== 'string' ||
+    !SERIAL.test(anchor.serial) ||
+    anchor.serial.length > LIMITS.maxSerialChars ||
     typeof anchor.token !== 'string' ||
     anchor.token.length === 0 ||
     anchor.token.length > LIMITS.maxAnchorTokenChars ||
@@ -101,17 +108,27 @@ export function addAnchor(book: TimeBook, anchor: Anchor, nowIso: string): Resul
 }
 
 /** The answer of the stamping service for a hash (or why there is none). */
-export type AnchorFailure = 'not-configured' | 'unreachable' | 'refused' | 'bad-response';
+export type AnchorFailure =
+  'not-configured' | 'unreachable' | 'refused' | 'rate-limited' | 'bad-response' | 'not-verified';
+
+/** What a verified answer gives: the time and serial are those of the checked token, not the relay's. */
+export interface AnchorValue {
+  tsaId: string;
+  token: Uint8Array;
+  genTime: string;
+  serial: string;
+}
 
 export type AnchorOutcome =
-  | { ok: true; value: { tsaId: string; token: Uint8Array; genTime: string } }
-  | { ok: false; reason: AnchorFailure; detail: string };
+  { ok: true; value: AnchorValue } | { ok: false; reason: AnchorFailure; detail: string };
 
 export const ANCHOR_FAILURE_TEXTS: Record<AnchorFailure, string> = {
   'not-configured': 'Kein externer Zeitstempeldienst eingerichtet.',
   unreachable: 'Der Zeitstempeldienst ist nicht erreichbar.',
   refused: 'Der Zeitstempeldienst hat die Anfrage abgelehnt.',
+  'rate-limited': 'Der Zeitstempeldienst nimmt vorerst keine weitere Anfrage an.',
   'bad-response': 'Die Antwort des Zeitstempeldienstes ist ungültig.',
+  'not-verified': 'Das Token des Zeitstempeldienstes hat die Prüfung nicht bestanden.',
 };
 
 /** Standard Base64 with padding. */
@@ -122,13 +139,11 @@ export function bytesToBase64(bytes: Uint8Array): string {
 }
 
 /** The anchor to add for a service's answer. */
-export function anchorFromOutcome(
-  request: AnchorRequest,
-  value: { tsaId: string; token: Uint8Array; genTime: string },
-): Anchor {
+export function anchorFromOutcome(request: AnchorRequest, value: AnchorValue): Anchor {
   return {
     tsaId: value.tsaId,
     genTime: value.genTime,
+    serial: value.serial,
     coveredN: request.coveredN,
     headHash: request.hash,
     token: bytesToBase64(value.token),
@@ -145,24 +160,70 @@ export function base64ToBytes(text: string): Uint8Array | null {
   }
 }
 
+/** Base64url without padding → bytes (what the relay sends and takes), or null when it is not that. */
+export function base64UrlToBytes(text: string): Uint8Array | null {
+  if (text.length === 0 || !BASE64URL.test(text) || text.length % 4 === 1) return null;
+  const padded =
+    text.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (text.length % 4)) % 4);
+  try {
+    return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+/** Bytes → Base64url without padding. */
+export const bytesToBase64Url = (bytes: Uint8Array): string =>
+  bytesToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+/** A hash of 64 hex digits → its 32 bytes, or null. */
+export function hexToBytes(hex: string): Uint8Array | null {
+  if (!isHash(hex)) return null;
+  return Uint8Array.from(hex.match(/../g) ?? [], (h) => parseInt(h, 16));
+}
+
 /**
- * Reads the answer of a stamping service strictly: exactly `tsaId`, `genTime` and `token` (Base64 of the
- * time stamp token), the token within the size limit. Anything else is a bad response, never a guess.
+ * Reads the relay's answer to `POST /v1/stamp/<id>` strictly: exactly `service`, `genTime`, `accuracyMs`
+ * (whole number or null), `serial` (lower-case hex) and `token` (Base64url of the DER token, within the
+ * size limit). Anything else is a bad response, never a guess. The values are **not trusted yet**: the
+ * token has to be verified against the hash and the shipped trust anchors (`genTime` here is for display
+ * only; the verified token's time counts).
  */
-export function parseServiceAnswer(value: unknown): AnchorOutcome {
+export function parseRelayAnswer(value: unknown): AnchorOutcome {
   const bad = (detail: string): AnchorOutcome => ({ ok: false, reason: 'bad-response', detail });
   if (typeof value !== 'object' || value === null || Array.isArray(value))
     return bad('kein Objekt');
   const o = value as Record<string, unknown>;
   const keys = Object.keys(o).sort().join(',');
-  if (keys !== 'genTime,token,tsaId') return bad('unerwartete Felder');
-  if (typeof o.tsaId !== 'string' || !textOk(o.tsaId, LIMITS.maxTsaIdChars) || o.tsaId === '') {
-    return bad('tsaId');
-  }
+  if (keys !== 'accuracyMs,genTime,serial,service,token') return bad('unerwartete Felder');
+  if (typeof o.service !== 'string' || !SERVICE_ID.test(o.service)) return bad('service');
   if (typeof o.genTime !== 'string' || Number.isNaN(Date.parse(o.genTime))) return bad('genTime');
-  if (typeof o.token !== 'string' || o.token.length > LIMITS.maxAnchorTokenChars)
+  if (o.accuracyMs !== null && !(Number.isInteger(o.accuracyMs) && (o.accuracyMs as number) >= 0))
+    return bad('accuracyMs');
+  if (
+    typeof o.serial !== 'string' ||
+    !SERIAL.test(o.serial) ||
+    o.serial.length > LIMITS.maxSerialChars
+  )
+    return bad('serial');
+  // Base64url is shorter than Base64 by a quarter at most: the stored (standard) form must fit as well
+  if (typeof o.token !== 'string' || o.token.length > LIMITS.maxAnchorTokenChars * 0.75)
     return bad('token');
-  const token = base64ToBytes(o.token);
+  const token = base64UrlToBytes(o.token);
   if (!token) return bad('token');
-  return { ok: true, value: { tsaId: o.tsaId, genTime: o.genTime, token } };
+  return { ok: true, value: { tsaId: o.service, genTime: o.genTime, serial: o.serial, token } };
+}
+
+/** The service ids of the relay's `GET /v1/services` answer, in the relay's order (at most 32). */
+export function parseServiceList(value: unknown): string[] | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const list = (value as Record<string, unknown>).services;
+  if (!Array.isArray(list) || list.length > 32) return null;
+  const ids: string[] = [];
+  for (const entry of list) {
+    const id = (entry as { id?: unknown } | null)?.id;
+    if (typeof id !== 'string' || !SERVICE_ID.test(id)) return null;
+    ids.push(id);
+  }
+  return ids;
 }

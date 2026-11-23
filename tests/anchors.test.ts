@@ -12,7 +12,11 @@ import {
   emptyBook,
   exportBackup,
   importBackup,
-  parseServiceAnswer,
+  base64UrlToBytes,
+  bytesToBase64Url,
+  hexToBytes,
+  parseRelayAnswer,
+  parseServiceList,
   stampIn,
   stampOut,
   type Anchor,
@@ -20,7 +24,7 @@ import {
 } from '../src/logic/index.ts';
 import { val } from './helpers.ts';
 
-const RELAY = 'https://relay.example/stamp';
+const RELAY = 'https://relay.example';
 const iso = (day: number, h = 8, m = 0, s = 0) =>
   `2026-11-${String(day).padStart(2, '0')}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.000Z`;
 const at = (date: string, h: number, m = 0) => ({ date, minute: h * 60 + m });
@@ -36,6 +40,7 @@ const book = (relay = RELAY): TimeBook => {
 const anchorFor = (b: TimeBook, n: number, over: Partial<Anchor> = {}): Anchor => ({
   tsaId: 'test-tsa',
   genTime: iso(20, 16, 1),
+  serial: '0a1b2c',
   coveredN: n,
   headHash: b.stamps[n - 1]?.hash ?? '0'.repeat(64),
   token: bytesToBase64(Uint8Array.from([1, 2, 3, 4, 5])),
@@ -163,6 +168,21 @@ describe('addAnchor', () => {
     ).toBe(true);
   });
 
+  it('refuses a missing, empty, upper-case or too long serial number', () => {
+    for (const serial of ['', 'ABC', '0x1', 'g1', ' 1', 'a'.repeat(LIMITS.maxSerialChars + 1)]) {
+      expect(addAnchor(b, anchorFor(b, 2, { serial }), now), serial).toEqual({
+        ok: false,
+        reason: 'bad-anchor',
+      });
+    }
+    expect(
+      addAnchor(b, anchorFor(b, 2, { serial: 'a'.repeat(LIMITS.maxSerialChars) }), now).ok,
+    ).toBe(true);
+    const without: Partial<Anchor> = anchorFor(b, 2);
+    delete without.serial;
+    expect(addAnchor(b, without as Anchor, now)).toEqual({ ok: false, reason: 'bad-anchor' });
+  });
+
   it('refuses a bad service name and a bad time', () => {
     expect(addAnchor(b, anchorFor(b, 2, { tsaId: '' }), now).ok).toBe(false);
     expect(
@@ -250,17 +270,24 @@ describe('anchors in the backup', () => {
   });
 });
 
-describe('the service answer', () => {
+describe('the relay answer', () => {
   const good = {
-    tsaId: 'tsa',
+    service: 'freetsa',
     genTime: iso(20, 16, 1),
-    token: bytesToBase64(Uint8Array.from([9, 8, 7])),
+    accuracyMs: null,
+    serial: '0a1b',
+    token: bytesToBase64Url(Uint8Array.from([251, 255, 254, 7])),
   };
 
-  it('reads exactly tsaId, genTime and token', () => {
-    const r = parseServiceAnswer(good);
-    expect(r.ok && [...r.value.token]).toEqual([9, 8, 7]);
-    expect(r.ok && r.value.tsaId).toBe('tsa');
+  it('reads exactly service, genTime, accuracyMs, serial and token (Base64url)', () => {
+    const r = parseRelayAnswer(good);
+    expect(r.ok && [...r.value.token]).toEqual([251, 255, 254, 7]);
+    expect(r.ok && r.value).toMatchObject({
+      tsaId: 'freetsa',
+      serial: '0a1b',
+      genTime: good.genTime,
+    });
+    expect(parseRelayAnswer({ ...good, accuracyMs: 1000 }).ok).toBe(true);
   });
 
   it('is a bad response for anything else', () => {
@@ -270,16 +297,27 @@ describe('the service answer', () => {
       'x',
       5,
       { ...good, extra: 1 },
-      { tsaId: 'a', genTime: good.genTime },
-      { ...good, tsaId: '' },
-      { ...good, tsaId: 5 },
+      { service: 'a', genTime: good.genTime },
+      { ...good, tsaId: 'freetsa' }, // the old name is not accepted
+      { ...good, service: '' },
+      { ...good, service: 'Free TSA' },
+      { ...good, service: 5 },
       { ...good, genTime: 'x' },
+      { ...good, accuracyMs: -1 },
+      { ...good, accuracyMs: 1.5 },
+      { ...good, accuracyMs: '1' },
+      { ...good, serial: '' },
+      { ...good, serial: '0A' },
+      { ...good, serial: 'a'.repeat(LIMITS.maxSerialChars + 1) },
       { ...good, token: '' },
       { ...good, token: '***' },
-      { ...good, token: 'A'.repeat(LIMITS.maxAnchorTokenChars + 4) },
+      { ...good, token: 'a+b/' }, // standard alphabet and padding are not Base64url
+      { ...good, token: 'abcd=' },
+      { ...good, token: 'A' }, // one character is no Base64
+      { ...good, token: 'A'.repeat(LIMITS.maxAnchorTokenChars) },
     ]) {
-      const r = parseServiceAnswer(bad);
-      expect(r.ok, JSON.stringify(bad)?.slice(0, 40)).toBe(false);
+      const r = parseRelayAnswer(bad);
+      expect(r.ok, JSON.stringify(bad)?.slice(0, 60)).toBe(false);
       expect(!r.ok && r.reason).toBe('bad-response');
     }
   });
@@ -287,17 +325,38 @@ describe('the service answer', () => {
   it('turns the answer into the anchor of the request', () => {
     const b2 = book();
     const req = anchorRequest(b2)!;
-    const r = parseServiceAnswer(good);
+    const r = parseRelayAnswer(good);
     if (!r.ok) throw new Error('unexpected');
     const anchor = anchorFromOutcome(req, r.value);
     expect(anchor).toEqual({
-      tsaId: 'tsa',
+      tsaId: 'freetsa',
       genTime: good.genTime,
+      serial: '0a1b',
       coveredN: 2,
       headHash: req.hash,
-      token: good.token,
+      token: bytesToBase64(Uint8Array.from([251, 255, 254, 7])),
     });
     expect(addAnchor(b2, anchor, iso(20, 16, 5)).ok).toBe(true);
+  });
+
+  it('reads the list of services', () => {
+    expect(
+      parseServiceList({ services: [{ id: 'freetsa', name: 'x' }, { id: 'sectigo' }] }),
+    ).toEqual(['freetsa', 'sectigo']);
+    expect(parseServiceList({ services: [] })).toEqual([]);
+    for (const bad of [
+      null,
+      'x',
+      {},
+      { services: 'x' },
+      { services: [{}] },
+      { services: [{ id: 'A' }] },
+    ]) {
+      expect(parseServiceList(bad), JSON.stringify(bad)).toBeNull();
+    }
+    expect(
+      parseServiceList({ services: Array.from({ length: 33 }, () => ({ id: 'a' })) }),
+    ).toBeNull();
   });
 
   it('has a German text for every failure kind', () => {
@@ -305,10 +364,20 @@ describe('the service answer', () => {
       expect(text.length, kind).toBeGreaterThan(10);
   });
 
-  it('converts Base64 both ways', () => {
+  it('converts Base64, Base64url and hex', () => {
     const bytes = Uint8Array.from({ length: 300 }, (_, i) => (i * 13) & 0xff);
     expect(base64ToBytes(bytesToBase64(bytes))).toEqual(bytes);
     expect(base64ToBytes('abc')).toBeNull();
     expect(base64ToBytes('')).toBeNull();
+    for (const n of [1, 2, 3, 4, 31, 32, 33, 300]) {
+      const part = bytes.slice(0, n);
+      const text = bytesToBase64Url(part);
+      expect(text).not.toMatch(/[+/=]/);
+      expect(base64UrlToBytes(text), String(n)).toEqual(part);
+    }
+    expect(base64UrlToBytes('')).toBeNull();
+    expect(hexToBytes('ab'.repeat(32))).toEqual(new Uint8Array(32).fill(0xab));
+    expect(hexToBytes('AB'.repeat(32))).toBeNull();
+    expect(hexToBytes('ab')).toBeNull();
   });
 });
