@@ -8,3 +8,4 @@ export * from './backup.ts';
 export * from './retention.ts';
 export * from './store.ts';
 export * from './texts.ts';
+export * from './view.ts';

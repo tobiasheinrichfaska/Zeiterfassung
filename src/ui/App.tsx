@@ -1,21 +1,48 @@
+import type { ReactNode } from 'react';
+import { WheelNav } from 'rad-navi';
 import { useBookApi } from './bookContext.ts';
+import { FormPage } from './FormPage.tsx';
+import { JUMP_NODE, PAGES, TREE, WHEEL_TEXTS } from './navigation.ts';
+import { StampPage } from './StampPage.tsx';
 import { styles } from './styles.ts';
 
-/** Temporary shell until the wheel navigation and the pages follow. */
+/** The page of each page id; a page id without an entry shows the wheel's placeholder. */
+const VIEWS: Record<string, () => ReactNode> = {
+  stempeln: () => <StampPage />,
+  tag: () => <FormPage />,
+};
+
 export function App() {
-  const { book, error, dismissError } = useBookApi();
+  const { error, dismissError } = useBookApi();
   return (
-    <main style={styles.page}>
-      <h1>Zeiterfassung</h1>
+    <>
       {error && (
-        <p role="alert" style={styles.error}>
+        <div
+          role="alert"
+          style={{
+            ...styles.error,
+            position: 'fixed',
+            top: 8,
+            left: 8,
+            right: 8,
+            zIndex: 1000,
+            background: 'Canvas',
+            color: 'CanvasText',
+          }}
+        >
           {error}{' '}
           <button type="button" style={styles.button} onClick={dismissError}>
             Gelesen
           </button>
-        </p>
+        </div>
       )}
-      <p>{Object.keys(book.days).length} Arbeitstage gespeichert.</p>
-    </main>
+      <WheelNav
+        tree={TREE}
+        pages={PAGES}
+        pageFor={(page) => VIEWS[page]?.()}
+        jumpTarget={() => JUMP_NODE}
+        texts={WHEEL_TEXTS}
+      />
+    </>
   );
 }
