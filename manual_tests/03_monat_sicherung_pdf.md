@@ -41,16 +41,19 @@ Alle Daten sind erfunden. Bisher in keinem echten Browser durchgespielt.
 
 **Schritte**
 
-1. Bereich „Einstellungen“, Seite „Sicherung“, „Sicherung speichern“.
+1. Bereich „Einstellungen“, Seite „Sicherung“. „Mit Passwort verschlüsseln (empfohlen)“ ist vorgewählt. Ein Passwort mit mindestens 8 Zeichen zweimal eintragen, „Sicherung speichern“.
 2. Im Bereich „Erfassen“ einen Tag eintragen (so weicht der Stand von der Sicherung ab).
-3. Zurück zu „Sicherung“, „Sicherung einspielen …“ und die gespeicherte Datei wählen.
-4. Die Rückfrage mit „OK“ bestätigen.
+3. Zurück zu „Sicherung“, „Datei wählen …“ und die gespeicherte Datei wählen.
+4. Das Passwort eintragen, „Öffnen und einspielen“, die Rückfrage mit „OK“ bestätigen.
 
 **Erwartet**
 
-- Die Rückfrage nennt die Zahl der Tage von beiden Seiten („… werden durch die Sicherung (…) ersetzt“).
-- Danach ist der Tag aus Schritt 2 weg (Stand der Sicherung).
+- Die Datei heißt `sicherung-JJJJ-MM-TT.verschluesselt.zeiterfassung.json`. In einem Texteditor ist von den Zeiten nichts zu lesen.
+- Zu kurzes Passwort oder zwei verschiedene Eingaben: roter Kasten mit dem Grund, es wird nichts gespeichert.
+- Schritt 3: Es erscheint die Passwortabfrage (nicht sofort die Rückfrage). Mit falschem Passwort: roter Kasten „Das Passwort ist falsch, oder die Datei wurde verändert oder ist beschädigt.“, die Abfrage bleibt, es ändert sich nichts.
+- Die Rückfrage nennt die Zahl der Tage von beiden Seiten („… werden durch die Sicherung (…) ersetzt“). Danach ist der Tag aus Schritt 2 weg (Stand der Sicherung).
 - Wählt man eine beliebige andere Datei (zum Beispiel ein Foto), erscheint ein roter Kasten mit Grund und es ändert sich nichts.
+- Wählt man „Unverschlüsselt speichern“, kommt eine Warnung und eine Rückfrage; die Datei heißt `….unverschluesselt.zeiterfassung.json` und ist lesbar. Beim Einspielen fragt die App dann nicht nach einem Passwort.
 
 ## MT-11: Aufbewahrung
 

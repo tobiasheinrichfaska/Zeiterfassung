@@ -138,6 +138,8 @@
       <tr><td>describeBook / replaceQuestion / pdfFileName / backupFileName</td><td>Hilfen</td><td>Beschreibung eines Buchs, Rückfrage vor dem Einspielen einer Sicherung, Dateinamen</td></tr>
       <tr><td>changeEntry / addChanges / changesOfMonth / changedDates</td><td>…</td><td>Protokolleintrag bilden (nur für abgelaufene Tage mit geänderten Zeiten), anfügen (voll = <code>too-many-changes</code>, nie stilles Verwerfen), Einträge und Daten eines Monats</td></tr>
       <tr><td>changeText / describeSnapshot / willBeLogged</td><td>(entry) → ChangeText</td><td>Deutsche Texte für Monatsansicht und Bericht; ob eine Änderung protokolliert wird (für die Rückfrage)</td></tr>
+      <tr><td>sealBackup / openBackup / readBackupFile / isEncryptedBackup</td><td>(plain, password, random, iterations?) → Promise&lt;Result&lt;string&gt;&gt; …</td><td>Verschlüsselte Sicherung: PBKDF2-SHA-256 (Runden im Kopf, 600000 für neue Dateien) → AES-256-GCM, der Kopf (Format, Version, Verfahren, Runden, Salz, Nonce) ist als authentifizierte Zusatzdaten gebunden. Streng gelesen; falsches Passwort und veränderte Datei sind nicht unterscheidbar (<code>wrong-password</code>). <code>readBackupFile</code> liest beide Formen (verschlüsselt braucht das Passwort: <code>password-required</code>)</td></tr>
+      <tr><td>checkNewPassword</td><td>(password, repeated) → Reason | null</td><td>8 bis 256 Zeichen (Zeichen, nicht UTF-16-Einheiten), zwei gleiche Eingaben</td></tr>
       <tr><td>markExported</td><td>(book, month, whenIso) → Result&lt;TimeBook&gt;</td><td>Export eines Monats vermerken</td></tr>
       <tr><td>retentionReport / purgeExpired</td><td>(book, today) → RetentionReport / TimeBook</td><td>Fällige Monate (aus Tagen und Protokoll): löschbar (exportiert und danach nicht mehr verändert) oder gesperrt (nicht exportiert, oder nach dem Export noch verändert: <code>stale</code>); Löschen entfernt Tage und Protokolleinträge des Monats, lässt laufende Tage (samt Einträgen) und gesperrte Monate unberührt</td></tr>
       <tr><td>clockFromDate / parseClock / formatClock / formatDuration</td><td>Hilfen</td><td>Wanduhr aus einem Date, Uhrzeit lesen und anzeigen</td></tr>
@@ -161,6 +163,10 @@
       <tr><td>bad-label</td><td>Bezeichnung zu lang oder mit Steuerzeichen</td></tr>
       <tr><td>bad-reason</td><td>Begründung zu lang oder mit Steuerzeichen</td></tr>
       <tr><td>too-many-changes</td><td>Das Änderungsprotokoll hat 2000 Einträge</td></tr>
+      <tr><td>wrong-password</td><td>Falsches Passwort oder veränderte/beschädigte verschlüsselte Datei</td></tr>
+      <tr><td>password-required</td><td>Verschlüsselte Sicherung ohne Passwort</td></tr>
+      <tr><td>weak-password</td><td>Passwort nicht 8 bis 256 Zeichen</td></tr>
+      <tr><td>passwords-differ</td><td>Die beiden Passwörter sind verschieden</td></tr>
       <tr><td>bad-retention</td><td>Aufbewahrung außerhalb 1–120 Monate</td></tr>
       <tr><td>bad-origin</td><td>Unbekannte Herkunft</td></tr>
       <tr><td>already-running</td><td>Es läuft schon ein Tag</td></tr>

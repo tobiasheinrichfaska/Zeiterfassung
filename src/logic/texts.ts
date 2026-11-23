@@ -18,6 +18,10 @@ export const REASON_TEXTS: Record<Reason, string> = {
   'bad-reason': 'Die Begründung ist zu lang (höchstens 200 Zeichen) oder enthält Steuerzeichen.',
   'too-many-changes':
     'Das Änderungsprotokoll ist voll (2000 Einträge). Bitte erst Monate exportieren und löschen.',
+  'wrong-password': 'Das Passwort ist falsch, oder die Datei wurde verändert oder ist beschädigt.',
+  'password-required': 'Diese Sicherung ist verschlüsselt. Bitte das Passwort eingeben.',
+  'weak-password': 'Das Passwort braucht 8 bis 256 Zeichen.',
+  'passwords-differ': 'Die beiden Passwörter sind verschieden.',
   'bad-retention': 'Die Aufbewahrung muss zwischen 1 und 120 Monaten liegen.',
   'bad-origin': 'Die Herkunft des Eintrags ist unbekannt.',
   'already-running': 'Es läuft schon ein Arbeitstag. Bitte zuerst „Gehen“ stempeln.',

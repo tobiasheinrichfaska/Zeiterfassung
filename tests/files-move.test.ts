@@ -71,7 +71,12 @@ describe('moveWorkday', () => {
 describe('file names and descriptions', () => {
   it('names the files', () => {
     expect(pdfFileName('2026-11')).toBe('zeiterfassung-2026-11.pdf');
-    expect(backupFileName('2026-11-23')).toBe('sicherung-2026-11-23.zeiterfassung.json');
+    expect(backupFileName('2026-11-23', true)).toBe(
+      'sicherung-2026-11-23.verschluesselt.zeiterfassung.json',
+    );
+    expect(backupFileName('2026-11-23', false)).toBe(
+      'sicherung-2026-11-23.unverschluesselt.zeiterfassung.json',
+    );
   });
 
   it('describes a book', () => {

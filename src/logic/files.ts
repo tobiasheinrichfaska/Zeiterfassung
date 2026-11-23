@@ -4,7 +4,8 @@ import { dateLabel } from './time.ts';
 export const pdfFileName = (month: MonthKey): string => `zeiterfassung-${month}.pdf`;
 
 /** The `.zeiterfassung.json` ending is what `.gitignore` keeps out of a repository. */
-export const backupFileName = (date: DateKey): string => `sicherung-${date}.zeiterfassung.json`;
+export const backupFileName = (date: DateKey, encrypted: boolean): string =>
+  `sicherung-${date}.${encrypted ? 'verschluesselt' : 'unverschluesselt'}.zeiterfassung.json`;
 
 export interface BookDescription {
   days: number;
