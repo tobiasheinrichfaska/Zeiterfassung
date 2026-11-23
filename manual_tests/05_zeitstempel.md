@@ -1,8 +1,10 @@
 # 05 Zeitstempel (Stempelkette und externer Zeitstempeldienst)
 
-Alle Daten sind erfunden. Bisher in keinem echten Browser durchgespielt. Einen echten Zeitstempeldienst
-gibt es noch nicht: Die Fälle MT-26 bis MT-28 brauchen einen Stellvertreter (ein kleines Programm oder einen
-Entwickler, der für den Test eine Fassung mit einer Weiterreicher-Adresse baut und einen Dienst nachstellt).
+Alle Daten sind erfunden. Auf einem echten Gerät und in anderen Browsern noch nicht durchgespielt. In headless
+Chromium lief der Weg mit einem **lokalen** Weiterreicher (aus dem Paket `zeitstempel`) und einer Test-PKI statt
+echter Dienste: siehe `e2e/README.md`. Mit einem **echten** Dienst über einen aufgestellten Weiterreicher hat es
+noch niemand versucht (den Weiterreicher gibt es noch nicht im Netz). Für MT-25/26 braucht man einen Entwickler,
+der eine Fassung mit Weiterreicher-Adresse baut (`VITE_TIMESTAMP_RELAY`).
 
 Wichtig vorab: Die **internen** Stempel stammen von der Geräteuhr und belegen keine Zeit. Nur die
 **externen** Zeitstempel belegen sie. Eine Web-Anwendung kann „spätestens alle 24 Stunden“ nur erfüllen,
@@ -17,7 +19,7 @@ solange sie geöffnet und online ist; im Hintergrund geht nichts.
 
 **Erwartet**
 
-- Vier Zeilen mit den Nummern 1 bis 4 ohne Lücke, jeweils Zeit (Geräteuhr, UTC), Art „Änderung“, Tag und die ersten 12 Zeichen einer Prüfsumme.
+- Vier Zeilen mit den Nummern 1 bis 4 ohne Lücke, jeweils Zeit (Geräteuhr, UTC) mit der Art „Änderung“ darunter, Tag und die ersten 12 Zeichen einer Prüfsumme. Die Tabelle passt auf die Breite eines Handys (sonst lässt sie sich im Kasten seitlich schieben).
 - Jede weitere Schreibaktion (Formular speichern, Tag löschen, wieder „Kommen“ nach „Gehen“) fügt genau eine Zeile hinzu.
 - Am nächsten Tag (oder nach Mitternacht bei geöffneter App, spätestens nach einer Minute) kommt für den beendeten Tag eine Zeile „Abschluss“ dazu, danach für diesen Tag nicht mehr.
 - Stellt man die Uhr des Geräts zurück und schreibt etwas, steht dort „(Uhr zurückgestellt)“; der Stempel wird trotzdem angehängt.
@@ -57,7 +59,7 @@ solange sie geöffnet und online ist; im Hintergrund geht nichts.
 
 ## MT-26: Mit erreichbarem Dienst (Stellvertreter)
 
-**Voraussetzung:** Eine Fassung mit Weiterreicher-Adresse; ein Stellvertreter-Dienst antwortet auf die Adresse mit `{"tsaId": …, "genTime": …, "token": …}`.
+**Voraussetzung:** Eine Fassung mit Adresse eines Zeitstempel-Weiterreichers (`GET <Adresse>/v1/services`, `POST <Adresse>/v1/stamp/<Kennung>`; die Prüfung des Tokens macht die App selbst gegen die mitgelieferten Wurzelzertifikate). Der Weiterreicher muss die Herkunft der Seite erlauben (`RELAY_ORIGINS`).
 
 **Schritte**
 
@@ -68,7 +70,9 @@ solange sie geöffnet und online ist; im Hintergrund geht nichts.
 **Erwartet**
 
 - Schritt 2: Der Status wechselt auf „Alle … Stempel sind durch externe Zeitstempel abgedeckt (letzter: … UTC).“; es gibt keinen roten Kasten.
-- Die App sendet nur die Prüfsumme (im Register „Netzwerk“: eine Anfrage an die gewählte Adresse, im Inhalt nur `hash`).
+- Die App sendet nur die Prüfsumme (im Register „Netzwerk“: eine Anfrage `GET …/v1/services` ohne Inhalt und eine Anfrage `POST …/v1/stamp/<Kennung>`, im Inhalt nur `hash`, 43 Zeichen Base64url).
+- Unter „Externe Zeitstempel“ steht eine Zeile mit Dienst, Zeit laut Token (UTC), „bis Stempel Nr. …“ und der Seriennummer; im PDF und im angehängten JSON stehen dieselbe Seriennummer und das Token.
+- Ein Token, das nicht zur Prüfsumme passt, verändert oder von einem unbekannten Aussteller ist, wird abgelehnt („Das Token des Zeitstempeldienstes hat die Prüfung nicht bestanden. (…)“); es entsteht kein Eintrag. Antwortet der Weiterreicher mit „zu viele Anfragen“ (429), wartet die App die genannte Zeit ab („… nimmt vorerst keine weitere Anfrage an“) und fragt in der Zwischenzeit nicht nach.
 - Schritt 3: Vor dem Speichern versucht die App einen frischen Zeitstempel; im PDF stehen unter „Zeitstempel“ der Dienst, die Zeit des Tokens, „deckt die Stempel bis Nr. …“ und die Prüfsumme. Im angehängten JSON stehen die Stempel des Monats und alle Anker samt Token (Base64).
 - Eine Zeit im Token, die mehr als 15 Minuten von der Geräteuhr abweicht, wird abgelehnt mit „Die Zeit des externen Zeitstempels passt nicht zur Geräteuhr. …“.
 

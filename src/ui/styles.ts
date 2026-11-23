@@ -37,6 +37,8 @@ export const styles = {
   },
   label: { display: 'flex', flexDirection: 'column', gap: 2, margin: '0 0 0.6rem' },
   error: { border: '2px solid #c62828', borderRadius: 8, padding: '0.5rem 0.75rem' },
+  /** A wide table scrolls inside its card instead of being cut off at the card's edge. */
+  scrollX: { overflowX: 'auto', maxWidth: '100%' },
   table: { borderCollapse: 'collapse', width: '100%' },
   cell: { borderBottom: '1px solid rgba(128,128,128,0.4)', padding: '0.3rem', textAlign: 'left' },
 } satisfies Record<string, CSSProperties>;

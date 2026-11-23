@@ -10,6 +10,7 @@ Versionen sind in `package.json` fest eingetragen.
 | `@pdf-lib/fontkit` | 1.1.1 | MIT (Angabe im Paket; Abspaltung von „fontkit“ von Devon Govett) | Lesen der Schrift, Teilmenge | (im Paket keine eigene Lizenzdatei) |
 | `pako`, `@pdf-lib/standard-fonts`, `@pdf-lib/upng`, `tslib` | wie von `pdf-lib` angefordert | MIT, MIT und Zlib, MIT, 0BSD | Abhängigkeiten von `pdf-lib` | in den Paketen |
 | `local-vault`, `rad-navi` | Git-Tags `v0.1.0`, `v0.1.1` | AGPLv3 + kommerziell (eigene Projekte) | Tresor, Navigation | in den Repos |
+| `zeitstempel` (RFC-3161-Leser und -Prüfer, `services.json`, Wurzelzertifikate `anchors/*.pem` der Dienste FreeTSA, Sectigo/USERTrust, DigiCert, Certum) | Commit `28db8a8` (kein Tag) | AGPLv3 + kommerziell (eigenes Projekt); die Wurzelzertifikate sind öffentliche Zertifikate der Betreiber | Prüfung der externen Zeitstempel, Wurzelzertifikate in der HTML-Datei | im Repo `zeitstempel` |
 
 Das **sRGB-Farbprofil** im PDF (`src/logic/icc.ts`) ist keine Fremddatei: Es wird aus den veröffentlichten
 sRGB-Werten (Primärfarben, D50-Weißpunkt, Übertragungskurve) im Code erzeugt.
