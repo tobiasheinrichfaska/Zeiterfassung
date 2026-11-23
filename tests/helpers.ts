@@ -1,6 +1,8 @@
 import { emptyBook, type Break, type TimeBook, type Workday } from '../src/logic/index.ts';
 
 export const NOW = '2026-11-23T09:00:00.000Z';
+/** „Today“ of the tests: the date of the default day. */
+export const CTX = { today: '2026-11-23' };
 
 export function day(over: Partial<Workday> = {}): Workday {
   return {

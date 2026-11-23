@@ -11,7 +11,7 @@ import {
   updateSettings,
   workMinutes,
 } from '../src/logic/index.ts';
-import { NOW, bookWith, day, val } from './helpers.ts';
+import { CTX, NOW, bookWith, day, val } from './helpers.ts';
 
 const at = (date: string, h: number, m = 0) => ({ date, minute: h * 60 + m });
 
@@ -223,28 +223,28 @@ describe('entry form', () => {
   const input = { date: '2026-11-23', startMin: 480, endMin: 990, breaks: [], note: '' };
 
   it('creates and replaces a day as manual', () => {
-    let b = val(setWorkday(emptyBook(), input, NOW));
+    let b = val(setWorkday(emptyBook(), input, NOW, CTX));
     expect(b.days['2026-11-23']!.origin).toBe('manual');
-    b = val(setWorkday(b, { ...input, endMin: 1000 }, '2026-11-24T08:00:00.000Z'));
+    b = val(setWorkday(b, { ...input, endMin: 1000 }, '2026-11-24T08:00:00.000Z', CTX));
     expect(b.days['2026-11-23']!.endMin).toBe(1000);
     expect(b.days['2026-11-23']!.recordedAt).toBe('2026-11-24T08:00:00.000Z');
   });
 
   it('refuses invalid input without changing anything', () => {
     const b = emptyBook();
-    expect(setWorkday(b, { ...input, endMin: 400 }, NOW)).toEqual({
+    expect(setWorkday(b, { ...input, endMin: 400 }, NOW, CTX)).toEqual({
       ok: false,
       reason: 'end-before-start',
     });
   });
 
   it('allows only one running day', () => {
-    const running = val(setWorkday(emptyBook(), { ...input, endMin: null }, NOW));
-    expect(setWorkday(running, { ...input, date: '2026-11-24', endMin: null }, NOW)).toEqual({
+    const running = val(setWorkday(emptyBook(), { ...input, endMin: null }, NOW, CTX));
+    expect(setWorkday(running, { ...input, date: '2026-11-24', endMin: null }, NOW, CTX)).toEqual({
       ok: false,
       reason: 'second-open-day',
     });
-    expect(setWorkday(running, { ...input, endMin: null, note: 'neu' }, NOW).ok).toBe(true); // same day
+    expect(setWorkday(running, { ...input, endMin: null, note: 'neu' }, NOW, CTX).ok).toBe(true); // same day
   });
 
   it('refuses more days than the limit', () => {
@@ -255,18 +255,18 @@ describe('entry form', () => {
       }),
     );
     const full = { ...emptyBook(), days };
-    expect(setWorkday(full, { ...input, date: '2026-11-23' }, NOW)).toEqual({
+    expect(setWorkday(full, { ...input, date: '2026-11-23' }, NOW, CTX)).toEqual({
       ok: false,
       reason: 'too-many-days',
     });
     const existing = Object.keys(days)[0]!;
-    expect(setWorkday(full, { ...input, date: existing }, NOW).ok).toBe(true); // replacing is fine
+    expect(setWorkday(full, { ...input, date: existing }, NOW, CTX).ok).toBe(true); // replacing is fine
   });
 
   it('removes a day, or says there is none', () => {
     const b = bookWith(day());
-    expect(val(removeWorkday(b, '2026-11-23')).days).toEqual({});
-    expect(removeWorkday(b, '2026-11-24')).toEqual({ ok: false, reason: 'no-such-day' });
+    expect(val(removeWorkday(b, '2026-11-23', NOW, CTX)).days).toEqual({});
+    expect(removeWorkday(b, '2026-11-24', NOW, CTX)).toEqual({ ok: false, reason: 'no-such-day' });
   });
 });
 

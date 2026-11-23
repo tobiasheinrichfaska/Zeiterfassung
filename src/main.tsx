@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { VaultGate } from 'local-vault';
 import { App } from './ui/App.tsx';
 import { BookProvider } from './ui/BookProvider.tsx';
+import { PromptProvider } from './ui/PromptProvider.tsx';
 import { vault } from './ui/vault.ts';
 
 const root = document.getElementById('root');
@@ -11,7 +12,9 @@ createRoot(root).render(
   <StrictMode>
     <VaultGate vault={vault}>
       <BookProvider vault={vault}>
-        <App />
+        <PromptProvider>
+          <App />
+        </PromptProvider>
       </BookProvider>
     </VaultGate>
   </StrictMode>,

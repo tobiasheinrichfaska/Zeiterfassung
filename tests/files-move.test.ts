@@ -7,28 +7,28 @@ import {
   replaceQuestion,
   setWorkday,
 } from '../src/logic/index.ts';
-import { NOW, bookWith, day, val } from './helpers.ts';
+import { CTX, NOW, bookWith, day, val } from './helpers.ts';
 
 const input = { date: '2026-11-23', startMin: 480, endMin: 990, breaks: [], note: '' };
 
 describe('moveWorkday', () => {
   it('replaces the day on the same date', () => {
     const b = bookWith(day());
-    const r = val(moveWorkday(b, '2026-11-23', { ...input, endMin: 1000 }, NOW));
+    const r = val(moveWorkday(b, '2026-11-23', { ...input, endMin: 1000 }, NOW, CTX));
     expect(Object.keys(r.days)).toEqual(['2026-11-23']);
     expect(r.days['2026-11-23']?.endMin).toBe(1000);
   });
 
   it('moves a day to another date in one step', () => {
     const b = bookWith(day());
-    const r = val(moveWorkday(b, '2026-11-23', { ...input, date: '2026-11-22' }, NOW));
+    const r = val(moveWorkday(b, '2026-11-23', { ...input, date: '2026-11-22' }, NOW, CTX));
     expect(Object.keys(r.days)).toEqual(['2026-11-22']);
   });
 
   it('changes nothing when the new input is refused (the old day stays)', () => {
     const b = bookWith(day());
     expect(
-      moveWorkday(b, '2026-11-23', { ...input, date: '2026-11-22', endMin: 100 }, NOW),
+      moveWorkday(b, '2026-11-23', { ...input, date: '2026-11-22', endMin: 100 }, NOW, CTX),
     ).toEqual({
       ok: false,
       reason: 'end-before-start',
@@ -37,7 +37,7 @@ describe('moveWorkday', () => {
   });
 
   it('refuses a day that is not there', () => {
-    expect(moveWorkday(emptyBook(), '2026-11-23', input, NOW)).toEqual({
+    expect(moveWorkday(emptyBook(), '2026-11-23', input, NOW, CTX)).toEqual({
       ok: false,
       reason: 'no-such-day',
     });
@@ -45,7 +45,7 @@ describe('moveWorkday', () => {
 
   it('replaces the entry already standing on the new date', () => {
     const b = bookWith(day(), day({ date: '2026-11-22', note: 'alt' }));
-    const r = val(moveWorkday(b, '2026-11-23', { ...input, date: '2026-11-22' }, NOW));
+    const r = val(moveWorkday(b, '2026-11-23', { ...input, date: '2026-11-22' }, NOW, CTX));
     expect(Object.keys(r.days)).toEqual(['2026-11-22']);
     expect(r.days['2026-11-22']?.note).toBe('');
   });
@@ -56,10 +56,11 @@ describe('moveWorkday', () => {
         bookWith(day({ date: '2026-11-20' })),
         { ...input, date: '2026-11-22', endMin: null },
         NOW,
+        CTX,
       ),
     );
     expect(
-      moveWorkday(b, '2026-11-20', { ...input, date: '2026-11-21', endMin: null }, NOW),
+      moveWorkday(b, '2026-11-20', { ...input, date: '2026-11-21', endMin: null }, NOW, CTX),
     ).toEqual({
       ok: false,
       reason: 'second-open-day',

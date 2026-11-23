@@ -52,6 +52,7 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
 | `src/logic/time.ts`                                                                        | Date/month keys, day arithmetic, `Clock`, formatting and parsing of times                                                                                                                                                                                                                                                                   |
 | `src/logic/validate.ts`                                                                    | `checkWorkday`, `checkSettings`, break minutes                                                                                                                                                                                                                                                                                              |
 | `src/logic/actions.ts`                                                                     | Stamp clock (`stampIn`, `breakStart`, `breakEnd`, `stampOut`), entry form (`setWorkday`, `removeWorkday`), `updateSettings`                                                                                                                                                                                                                 |
+| `src/logic/changes.ts`                                                                     | Change log of days that are over (date < today): `changeEntry`, `addChanges`, `changesOfMonth`, `changeText`, `LOG_NOTICE`                                                                                                                                                                                                                  |
 | `src/logic/summary.ts`                                                                     | Working minutes and `monthSummary`                                                                                                                                                                                                                                                                                                          |
 | `src/logic/xml.ts`                                                                         | `monthToXml`: machine-readable monthly summary (`urn:zeiterfassung:monat:1`)                                                                                                                                                                                                                                                                |
 | `src/logic/backup.ts`                                                                      | `exportBackup`, strict `importBackup`                                                                                                                                                                                                                                                                                                       |
@@ -82,7 +83,7 @@ session the model changes.
 Decisions behind it: times are minutes since local midnight of the arrival day (wall clock, no time zone,
 so daylight-saving changes need no special case; a shift past midnight has `endMin` above 1440); one
 working day per date; a pause is a length or a span; at most one running day; backup and the stored book
-are the same format (version 1).
+are the same format (version 2; version 1 is read and migrated without loss).
 
 ## Development Server Ports
 
@@ -106,12 +107,14 @@ npm run build
 - **The screens have never been run in a real browser** (nobody has opened the build yet): the vault in
   IndexedDB/localStorage, the wheel gestures, the file download, the share sheet and the look of the PDF
   in a viewer are unchecked. Automated: logic, the vault against its in-memory environment, the PDF read
-  back (attachment, sums, metadata), the navigation tree. `manual_tests/` MT-01 to MT-13 are the first run.
+  back (attachment, sums, metadata), the navigation tree. `manual_tests/` MT-01 to MT-18 are the first run.
 - The PDF holds the readable table plus the XML (`zeiterfassung-JJJJ-MM.xml`) as an embedded attachment
   that only confirms the table (decision 2026-11-23). It is a plain PDF, not PDF/A-3; whether the
   personnel file accepts attachments is not checked. A JSON variant is not built. The table has one page
   (a month has at most 31 days); notes longer than the column are shortened on the page (the attachment
   keeps the whole text); characters the standard font cannot show print as „?“.
+- **The change log is not tamper-proof**: no hash chain, no signature, device clock. Whoever holds the unlocked device can change times and the log. To be strengthened later by the timestamp repo / signatures. Real-time stamps (Kommen, Pause, Gehen) are not logged, also not the departure stamped after midnight for a shift started the day before; entries are shown in UTC.
+- A month counts as exported only while nothing in it was recorded or changed after the export; a later change blocks the purge until it is exported again.
 - The backup file is **not encrypted** (readable text with all times); the vault copy is.
 - The page position of the wheels is not remembered after a restart; a form being typed is lost when
   the page is swiped away.

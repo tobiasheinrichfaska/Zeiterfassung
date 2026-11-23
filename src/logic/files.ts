@@ -1,5 +1,5 @@
 import type { DateKey, MonthKey, TimeBook } from './model.ts';
-import { dateLabel } from './view.ts';
+import { dateLabel } from './time.ts';
 
 export const pdfFileName = (month: MonthKey): string => `zeiterfassung-${month}.pdf`;
 

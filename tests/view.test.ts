@@ -23,7 +23,7 @@ import {
   monthSummary,
   type DayFormFields,
 } from '../src/logic/index.ts';
-import { NOW, bookWith, day, val } from './helpers.ts';
+import { CTX, NOW, bookWith, day, val } from './helpers.ts';
 
 const at = (date: string, h: number, m = 0) => ({ date, minute: h * 60 + m });
 
@@ -141,7 +141,7 @@ describe('parseDayForm', () => {
   it('does not guess the next day without the box: end before start stays an error for the logic', () => {
     const r = val(parseDayForm(form({ start: '22:00', end: '06:00' })));
     expect(r.endMin).toBe(360);
-    expect(setWorkday(emptyBook(), r, NOW)).toEqual({ ok: false, reason: 'end-before-start' });
+    expect(setWorkday(emptyBook(), r, NOW, CTX)).toEqual({ ok: false, reason: 'end-before-start' });
   });
 
   it('refuses what cannot be read', () => {

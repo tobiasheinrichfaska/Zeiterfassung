@@ -1,5 +1,9 @@
 import { useState } from 'react';
 import {
+  LOG_NOTICE,
+  changedDates,
+  changeText,
+  changesOfMonth,
   clockFromDate,
   dayToForm,
   formatDuration,
@@ -16,19 +20,24 @@ import {
   rowTexts,
   shiftMonth,
   type WorkdayInput,
+  willBeLogged,
 } from '../logic/index.ts';
 import { canShareFile, downloadFile, shareFile } from '../io/files.ts';
 import { useBookApi } from './bookContext.ts';
 import { DayForm } from './DayForm.tsx';
+import { useAskReason } from './promptContext.ts';
 import { styles } from './styles.ts';
 
 export function MonthPage() {
   const { book, apply, showError } = useBookApi();
+  const askReason = useAskReason();
   const [month, setMonth] = useState(() => monthOf(clockFromDate(new Date()).date));
   const [editing, setEditing] = useState<string | undefined>();
   const [info, setInfo] = useState<string | undefined>();
   const summary = monthSummary(book, month);
   const exportedAt = book.exportedMonths[month];
+  const changed = changedDates(book, month);
+  const monthChanges = changesOfMonth(book, month);
   const editingDay = editing === undefined ? undefined : book.days[editing];
 
   const go = (delta: number) => {
@@ -37,19 +46,33 @@ export function MonthPage() {
     setInfo(undefined);
   };
 
-  const save = (input: WorkdayInput): boolean => {
+  /** Asks for a reason when a day that is over is touched; null = cancelled. */
+  const reasonFor = async (dates: string[]): Promise<{ today: string; reason?: string } | null> => {
+    const today = clockFromDate(new Date()).date;
+    if (!willBeLogged(dates, today)) return { today };
+    const answer = await askReason(LOG_NOTICE);
+    if (!answer) return null;
+    return { today, ...(answer.reason ? { reason: answer.reason } : {}) };
+  };
+
+  const save = async (input: WorkdayInput): Promise<boolean> => {
     if (editing === undefined) return false;
     if (input.date !== editing && input.date in book.days) {
       if (!confirm(`Für den ${input.date} gibt es schon einen Eintrag. Ersetzen?`)) return false;
     }
-    const ok = apply(moveWorkday(book, editing, input, new Date().toISOString()));
+    const ctx = await reasonFor([editing, input.date]);
+    if (!ctx) return false;
+    const ok = apply(moveWorkday(book, editing, input, new Date().toISOString(), ctx));
     if (ok) setEditing(undefined);
     return ok;
   };
 
-  const remove = (date: string) => {
+  const remove = async (date: string) => {
     if (!confirm(`Den Eintrag vom ${date} löschen?`)) return;
-    if (apply(removeWorkday(book, date))) setEditing(undefined);
+    const ctx = await reasonFor([date]);
+    if (ctx && apply(removeWorkday(book, date, new Date().toISOString(), ctx))) {
+      setEditing(undefined);
+    }
   };
 
   /** Makes the PDF, saves it (or shares it) and only then notes the month as exported. */
@@ -120,7 +143,10 @@ export function MonthPage() {
               const t = rowTexts(row);
               return (
                 <tr key={row.date}>
-                  <td style={styles.cell}>{t.date}</td>
+                  <td style={styles.cell}>
+                    {t.date}
+                    {changed.has(row.date) && <em> (nachträglich geändert)</em>}
+                  </td>
                   <td style={styles.cell}>{t.start}</td>
                   <td style={styles.cell}>{t.end}</td>
                   <td style={styles.cell}>{t.breaks}</td>
@@ -158,10 +184,41 @@ export function MonthPage() {
             onCancel={() => setEditing(undefined)}
           />
           <p>
-            <button type="button" style={styles.button} onClick={() => remove(editingDay.date)}>
+            <button
+              type="button"
+              style={styles.button}
+              onClick={() => void remove(editingDay.date)}
+            >
               Eintrag löschen
             </button>
           </p>
+        </section>
+      )}
+
+      {monthChanges.length > 0 && (
+        <section style={styles.card} aria-label="Nachträgliche Änderungen">
+          <h3>Nachträgliche Änderungen</h3>
+          <ul>
+            {monthChanges.map((c, i) => {
+              const t = changeText(c);
+              return (
+                <li key={i}>
+                  <strong>{t.date}</strong> – {t.kind} am {t.when}
+                  {t.link && ` (${t.link})`}
+                  <br />
+                  vorher: {t.before}
+                  <br />
+                  nachher: {t.after}
+                  {t.reason && (
+                    <>
+                      <br />
+                      Begründung: {t.reason}
+                    </>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         </section>
       )}
 

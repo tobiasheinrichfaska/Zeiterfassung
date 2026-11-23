@@ -12,7 +12,7 @@ import { openDay, type WorkdayInput } from './actions.ts';
 import { checkSettings } from './validate.ts';
 import type { DayRow } from './summary.ts';
 import {
-  dayNumber,
+  dateLabel,
   formatClock,
   formatDuration,
   isDateKey,
@@ -184,8 +184,6 @@ export const MONTH_NAMES = [
   'Dezember',
 ] as const;
 
-export const WEEKDAYS_SHORT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'] as const;
-
 /** `November 2026`. */
 export function monthLabel(month: MonthKey): string {
   if (!isMonthKey(month)) throw new TypeError('not a month key');
@@ -197,12 +195,6 @@ export function shiftMonth(month: MonthKey, delta: number): MonthKey {
   const index = monthIndex(month) + delta;
   const year = Math.floor(index / 12);
   return `${String(year).padStart(4, '0')}-${String((index % 12) + 1).padStart(2, '0')}`;
-}
-
-/** `Mo 23.11.2026` (German order, with the weekday). */
-export function dateLabel(date: string): string {
-  const weekday = WEEKDAYS_SHORT[(((dayNumber(date) + 4) % 7) + 7) % 7];
-  return `${weekday} ${date.slice(8)}.${date.slice(5, 7)}.${date.slice(0, 4)}`;
 }
 
 /** The texts of one row of the month table. */

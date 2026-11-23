@@ -26,6 +26,40 @@ export interface Workday {
   recordedAt: string;
 }
 
+/** The times of a day as they stood before or after a change (compact, no dates). */
+export interface DaySnapshot {
+  startMin: number;
+  endMin: number | null;
+  breaks: Break[];
+  note: string;
+  origin: Origin;
+}
+
+export type ChangeKind = 'added' | 'changed' | 'removed';
+export const CHANGE_KINDS: readonly ChangeKind[] = ['added', 'changed', 'removed'];
+
+/**
+ * One logged change to a day that was already over. A move is two entries (removed + added)
+ * that point at each other through `movedTo` / `movedFrom`. Not tamper-proof (no chain, no
+ * signature, device clock): see Known Limitations.
+ */
+export interface ChangeEntry {
+  /** When the change was made (ISO 8601, UTC, device clock). */
+  at: string;
+  /** The affected day. */
+  date: DateKey;
+  kind: ChangeKind;
+  /** Null for `added`. */
+  before: DaySnapshot | null;
+  /** Null for `removed`. */
+  after: DaySnapshot | null;
+  /** The person's reason; empty when none was given. */
+  reason: string;
+  /** For a move: the other date. */
+  movedTo: DateKey | null;
+  movedFrom: DateKey | null;
+}
+
 export interface Settings {
   /** Free text printed on the summary (a name or a staff number); may be empty. */
   employeeLabel: string;
@@ -40,10 +74,12 @@ export interface TimeBook {
   days: Record<DateKey, Workday>;
   /** Month → when its summary was exported (ISO). Only exported months may be purged. */
   exportedMonths: Record<MonthKey, string>;
+  /** Every change to a day that was already over (date before today), oldest first. */
+  changes: ChangeEntry[];
 }
 
 export const BOOK_FORMAT = 'zeiterfassung-buch';
-export const BOOK_VERSION = 1;
+export const BOOK_VERSION = 2;
 
 /** Every limit in one place; tests tie their boundaries to it. */
 export const LIMITS = {
@@ -58,6 +94,8 @@ export const LIMITS = {
   retentionMonthsMax: 120,
   maxDays: 4000,
   maxBackupChars: 5_000_000,
+  maxChanges: 2000,
+  maxReasonChars: 200,
 } as const;
 
 export const DEFAULT_SETTINGS: Settings = { employeeLabel: '', retentionMonths: 24 };
@@ -69,6 +107,7 @@ export function emptyBook(): TimeBook {
     settings: { ...DEFAULT_SETTINGS },
     days: {},
     exportedMonths: {},
+    changes: [],
   };
 }
 
@@ -87,6 +126,8 @@ export type Reason =
   | 'open-break-on-closed-day'
   | 'bad-note'
   | 'bad-label'
+  | 'bad-reason'
+  | 'too-many-changes'
   | 'bad-retention'
   | 'bad-origin'
   | 'already-running'

@@ -18,6 +18,8 @@ const REASONS: Record<Reason, true> = {
   'open-break-on-closed-day': true,
   'bad-note': true,
   'bad-label': true,
+  'bad-reason': true,
+  'too-many-changes': true,
   'bad-retention': true,
   'bad-origin': true,
   'already-running': true,
@@ -79,6 +81,15 @@ describe('docs/data-model.html against the code', () => {
       'markExported',
       'retentionReport',
       'purgeExpired',
+      'changeEntry',
+      'addChanges',
+      'changesOfMonth',
+      'changedDates',
+      'changeText',
+      'describeSnapshot',
+      'willBeLogged',
+      'reopenCandidate',
+      'reopenQuestion',
     ];
     for (const name of documented) {
       expect(typeof logic[name], name).toBe('function');

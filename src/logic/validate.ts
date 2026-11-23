@@ -22,7 +22,7 @@ function plainText(text: string): boolean {
   return true;
 }
 
-function textOk(text: unknown, max: number): text is string {
+export function textOk(text: unknown, max: number): text is string {
   return typeof text === 'string' && text.length <= max && plainText(text);
 }
 

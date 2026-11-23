@@ -35,10 +35,11 @@
     <table>
       <tr><th>Feld</th><th>Typ</th><th>Pflicht</th><th>Bedeutung</th></tr>
       <tr><td>format</td><td>"zeiterfassung-buch"</td><td>ja</td><td>Kennung des Formats</td></tr>
-      <tr><td>version</td><td>1</td><td>ja</td><td>Formatversion; eine andere Version wird beim Einlesen mit <code>unknown-version</code> abgelehnt</td></tr>
+      <tr><td>version</td><td>2</td><td>ja</td><td>Formatversion. Version 1 (ohne Änderungsprotokoll) wird beim Einlesen verlustfrei zu Version 2 mit leerem Protokoll; jede andere Version wird mit <code>unknown-version</code> abgelehnt</td></tr>
       <tr><td>settings</td><td>Settings</td><td>ja</td><td>Einstellungen</td></tr>
       <tr><td>days</td><td>Record&lt;DateKey, Workday&gt;</td><td>ja</td><td>Arbeitstage, Schlüssel = Datum <code>JJJJ-MM-TT</code>; höchstens ein Tag je Datum</td></tr>
-      <tr><td>exportedMonths</td><td>Record&lt;MonthKey, ISO-Zeit&gt;</td><td>ja</td><td>Monat → Zeitpunkt des Exports der Monatszusammenfassung; nur exportierte Monate dürfen nach Ablauf der Aufbewahrung gelöscht werden</td></tr>
+      <tr><td>exportedMonths</td><td>Record&lt;MonthKey, ISO-Zeit&gt;</td><td>ja</td><td>Monat → Zeitpunkt des Exports der Monatszusammenfassung; nur Monate, die danach nicht mehr verändert wurden, dürfen nach Ablauf der Aufbewahrung gelöscht werden</td></tr>
+      <tr><td>changes</td><td>ChangeEntry[]</td><td>ja (ab Version 2)</td><td>Änderungsprotokoll: jede Änderung an einem abgelaufenen Tag (Datum vor dem heutigen lokalen Datum), älteste zuerst, höchstens 2000</td></tr>
     </table>
 
     <h2>2 Entitäten</h2>
@@ -60,6 +61,23 @@
       <tr><td>length</td><td>minutes (ganze Zahl 1–720)</td><td>Nur eine Dauer (Eingabeformular)</td></tr>
       <tr><td>span</td><td>fromMin, toMin (ganze Zahl oder null)</td><td>Zeitraum innerhalb des Tages (Stechuhr); toMin = null: Pause läuft, nur an einem laufenden Tag, höchstens eine; Zeiträume dürfen sich nicht überlappen und nicht vor dem Kommen oder nach dem Gehen liegen</td></tr>
     </table>
+    <h3>ChangeEntry (Änderungsprotokoll)</h3>
+    <p class="note">
+      Ein Tag ist abgelaufen, wenn sein Datum vor dem heutigen lokalen Datum liegt. Änderungen an heutigen und
+      künftigen Tagen und Echtzeit-Stempel (Kommen, Pause, Gehen) werden nicht protokolliert. Das Protokoll ist
+      <strong>nicht manipulationssicher</strong> (keine Kette, keine Signatur, Geräteuhr).
+    </p>
+    <table>
+      <tr><th>Feld</th><th>Typ</th><th>Pflicht</th><th>Bedeutung</th></tr>
+      <tr><td>at</td><td>ISO-8601-Zeit (UTC)</td><td>ja</td><td>Zeitpunkt der Änderung (Geräteuhr)</td></tr>
+      <tr><td>date</td><td>DateKey</td><td>ja</td><td>Betroffener Tag</td></tr>
+      <tr><td>kind</td><td>"added" | "changed" | "removed"</td><td>ja</td><td>Nachgetragen, geändert, gelöscht</td></tr>
+      <tr><td>before</td><td>DaySnapshot oder null</td><td>ja</td><td>Zustand vorher; null bei „added“</td></tr>
+      <tr><td>after</td><td>DaySnapshot oder null</td><td>ja</td><td>Zustand nachher; null bei „removed“</td></tr>
+      <tr><td>reason</td><td>Text, höchstens 200 Zeichen</td><td>ja (leer erlaubt)</td><td>Begründung, eine Zeile, keine Steuerzeichen</td></tr>
+      <tr><td>movedTo / movedFrom</td><td>DateKey oder null</td><td>ja</td><td>Verschieben ist „removed“ (movedTo) plus „added“ oder „changed“ (movedFrom); das andere Datum ist der Verweis</td></tr>
+    </table>
+    <p><strong>DaySnapshot:</strong> startMin, endMin, breaks, note, origin (wie bei Workday, ohne Datum und recordedAt). Beim Einlesen gelten für den Zustand dieselben Regeln wie für einen Arbeitstag.</p>
     <h3>Settings</h3>
     <table>
       <tr><th>Feld</th><th>Typ</th><th>Pflicht</th><th>Bedeutung</th></tr>
@@ -74,6 +92,8 @@
       <rect class="e" x="260" y="130" width="120" height="50" rx="6" /><text x="290" y="160">Workday</text>
       <rect class="e" x="510" y="130" width="120" height="50" rx="6" /><text x="545" y="160">Break</text>
       <rect class="e" x="510" y="10" width="120" height="50" rx="6" /><text x="530" y="40">Monat (Export)</text>
+      <rect class="e" x="260" y="70" width="120" height="40" rx="6" /><text x="285" y="95">ChangeEntry</text>
+      <path d="M130 95 L260 90" /><text class="lab" x="160" y="84">changes 1:0..2000</text>
       <path d="M130 85 L260 38" /><text class="lab" x="170" y="52">settings 1:1</text>
       <path d="M130 105 L260 150" /><text class="lab" x="150" y="140">days 1:0..n</text>
       <path d="M380 155 L510 155" /><text class="lab" x="400" y="148">breaks 1:0..20</text>
@@ -84,6 +104,7 @@
       <tr><td>TimeBook</td><td>settings</td><td>Settings</td><td>1 : 1 (eingebettet)</td></tr>
       <tr><td>TimeBook</td><td>days</td><td>Workday</td><td>1 : 0..4000, Schlüssel = Datum</td></tr>
       <tr><td>Workday</td><td>breaks</td><td>Break</td><td>1 : 0..20 (eingebettet)</td></tr>
+      <tr><td>TimeBook</td><td>changes</td><td>ChangeEntry</td><td>1 : 0..2000 (eingebettet); <code>date</code> verweist auf einen Tag (der inzwischen fehlen kann), <code>movedTo</code>/<code>movedFrom</code> auf ein zweites Datum</td></tr>
       <tr><td>TimeBook</td><td>exportedMonths</td><td>Monat (aus den Tagen abgeleitet, keine eigene Entität)</td><td>1 : 0..n, Schlüssel = <code>JJJJ-MM</code></td></tr>
     </table>
 
@@ -96,8 +117,8 @@
       <tr><td>breakStart</td><td>(book, clock, nowIso) → Result&lt;TimeBook&gt;</td><td>Pause beginnt</td></tr>
       <tr><td>breakEnd</td><td>(book, clock, nowIso) → Result&lt;TimeBook&gt;</td><td>Pause endet</td></tr>
       <tr><td>stampOut</td><td>(book, clock, nowIso) → Result&lt;TimeBook&gt;</td><td>Gehen stempeln; eine laufende Pause endet im selben Moment; Minuten nach Mitternacht zählen auf den Tag des Kommens</td></tr>
-      <tr><td>setWorkday</td><td>(book, WorkdayInput, nowIso) → Result&lt;TimeBook&gt;</td><td>Eingabeformular: Tag anlegen oder ersetzen (<code>origin</code> = manual)</td></tr>
-      <tr><td>removeWorkday</td><td>(book, date) → Result&lt;TimeBook&gt;</td><td>Tag löschen</td></tr>
+      <tr><td>setWorkday</td><td>(book, WorkdayInput, nowIso, ChangeContext) → Result&lt;TimeBook&gt;</td><td>Eingabeformular: Tag anlegen oder ersetzen (<code>origin</code> = manual). <code>ChangeContext</code> = { today, reason? }; bei einem abgelaufenen Tag mit geänderten Zeiten kommt ein Eintrag ins Änderungsprotokoll</td></tr>
+      <tr><td>removeWorkday</td><td>(book, date, nowIso, ChangeContext) → Result&lt;TimeBook&gt;</td><td>Tag löschen (protokolliert, wenn abgelaufen)</td></tr>
       <tr><td>updateSettings</td><td>(book, Settings) → Result&lt;TimeBook&gt;</td><td>Einstellungen ändern</td></tr>
       <tr><td>openDay</td><td>(book) → Workday | undefined</td><td>Der laufende Tag</td></tr>
       <tr><td>checkWorkday / checkSettings</td><td>(value) → Reason | null</td><td>Regeln aus Abschnitt 2 prüfen</td></tr>
@@ -105,14 +126,16 @@
       <tr><td>monthSummary</td><td>(book, month) → MonthSummary</td><td>Zeilen, Summe der abgeschlossenen Tage, Zahl der laufenden Tage</td></tr>
       <tr><td>monthToXml</td><td>(book, month, createdIso) → Result&lt;string&gt;</td><td>Maschinenlesbare Monatszusammenfassung (Namensraum <code>urn:zeiterfassung:monat:1</code>) für die digitale Personalakte</td></tr>
       <tr><td>exportBackup / importBackup</td><td>(book) → string / (text) → Result&lt;TimeBook&gt;</td><td>Sicherungsdatei schreiben und streng lesen (unbekannte Felder, Regelverstöße, zwei laufende Tage: abgelehnt)</td></tr>
-      <tr><td>moveWorkday</td><td>(book, oldDate, WorkdayInput, nowIso) → Result&lt;TimeBook&gt;</td><td>Tag korrigieren, auch auf ein anderes Datum verschieben (alter Eintrag fällt im selben Schritt weg; bei Ablehnung bleibt alles unverändert)</td></tr>
+      <tr><td>moveWorkday</td><td>(book, oldDate, WorkdayInput, nowIso, ChangeContext) → Result&lt;TimeBook&gt;</td><td>Tag korrigieren, auch auf ein anderes Datum verschieben (alter Eintrag fällt im selben Schritt weg; bei Ablehnung bleibt alles unverändert); ein Verschieben wird als zwei verweisende Protokolleinträge geführt</td></tr>
       <tr><td>loadBook / serializeBook</td><td>(raw: string | null) → Loaded / (book) → string</td><td>Tresor-Fach <code>book</code> lesen und schreiben (gleiches Format wie die Sicherung); nicht lesbarer Inhalt wird gemeldet und nie durch ein leeres Buch ersetzt</td></tr>
       <tr><td>stampState / stampEnabled / stampStatus</td><td>(book[, clock]) → …</td><td>Zustand der Stechuhr (idle, working, onBreak) und welche Knöpfe sinnvoll sind (Tabelle <code>STAMP_ENABLED</code>); <code>reopenCandidate</code> / <code>reopenQuestion</code>: der heute beendete Tag, den „Kommen“ nach einer Rückfrage wieder öffnet</td></tr>
       <tr><td>parseDayForm / dayToForm / parseSettingsForm</td><td>(Formularfelder) → Result&lt;WorkdayInput | Settings&gt;</td><td>Textfelder lesen (nur Form; die Regeln prüft <code>checkWorkday</code>); Uhrzeiten vor dem Kommen zählen bei „Gehen am Folgetag“ zum nächsten Tag</td></tr>
       <tr><td>monthLayout / monthToPdf</td><td>(book, month, createdIso) → MonthLayout / Promise&lt;Result&lt;Uint8Array&gt;&gt;</td><td>Lesbare Monatsübersicht als PDF (eine Seite, Tabelle, Summe) mit <code>zeiterfassung-JJJJ-MM.xml</code> (= <code>monthToXml</code>) als eingebettetem Anhang, der nur der Bestätigung dient; neutrale Metadaten</td></tr>
       <tr><td>describeBook / replaceQuestion / pdfFileName / backupFileName</td><td>Hilfen</td><td>Beschreibung eines Buchs, Rückfrage vor dem Einspielen einer Sicherung, Dateinamen</td></tr>
+      <tr><td>changeEntry / addChanges / changesOfMonth / changedDates</td><td>…</td><td>Protokolleintrag bilden (nur für abgelaufene Tage mit geänderten Zeiten), anfügen (voll = <code>too-many-changes</code>, nie stilles Verwerfen), Einträge und Daten eines Monats</td></tr>
+      <tr><td>changeText / describeSnapshot / willBeLogged</td><td>(entry) → ChangeText</td><td>Deutsche Texte für Monatsansicht und Bericht; ob eine Änderung protokolliert wird (für die Rückfrage)</td></tr>
       <tr><td>markExported</td><td>(book, month, whenIso) → Result&lt;TimeBook&gt;</td><td>Export eines Monats vermerken</td></tr>
-      <tr><td>retentionReport / purgeExpired</td><td>(book, today) → RetentionReport / TimeBook</td><td>Fällige Monate: löschbar (exportiert) oder gesperrt (nicht exportiert); Löschen lässt laufende Tage und nicht exportierte Monate unberührt</td></tr>
+      <tr><td>retentionReport / purgeExpired</td><td>(book, today) → RetentionReport / TimeBook</td><td>Fällige Monate (aus Tagen und Protokoll): löschbar (exportiert und danach nicht mehr verändert) oder gesperrt (nicht exportiert, oder nach dem Export noch verändert: <code>stale</code>); Löschen entfernt Tage und Protokolleinträge des Monats, lässt laufende Tage (samt Einträgen) und gesperrte Monate unberührt</td></tr>
       <tr><td>clockFromDate / parseClock / formatClock / formatDuration</td><td>Hilfen</td><td>Wanduhr aus einem Date, Uhrzeit lesen und anzeigen</td></tr>
     </table>
 
@@ -132,6 +155,8 @@
       <tr><td>open-break-on-closed-day</td><td>Laufende Pause an einem beendeten Tag</td></tr>
       <tr><td>bad-note</td><td>Notiz zu lang oder mit Steuerzeichen</td></tr>
       <tr><td>bad-label</td><td>Bezeichnung zu lang oder mit Steuerzeichen</td></tr>
+      <tr><td>bad-reason</td><td>Begründung zu lang oder mit Steuerzeichen</td></tr>
+      <tr><td>too-many-changes</td><td>Das Änderungsprotokoll hat 2000 Einträge</td></tr>
       <tr><td>bad-retention</td><td>Aufbewahrung außerhalb 1–120 Monate</td></tr>
       <tr><td>bad-origin</td><td>Unbekannte Herkunft</td></tr>
       <tr><td>already-running</td><td>Es läuft schon ein Tag</td></tr>
@@ -160,6 +185,8 @@
       <tr><td>retentionMonthsMax</td><td>120</td><td>Größte Aufbewahrung</td></tr>
       <tr><td>maxDays</td><td>4000</td><td>Tage im Buch</td></tr>
       <tr><td>maxBackupChars</td><td>5000000</td><td>Größe einer Sicherungsdatei beim Einlesen</td></tr>
+      <tr><td>maxChanges</td><td>2000</td><td>Einträge im Änderungsprotokoll</td></tr>
+      <tr><td>maxReasonChars</td><td>200</td><td>Begründung einer Änderung</td></tr>
     </table>
 
     <h2>7 Werkseinstellungen</h2>

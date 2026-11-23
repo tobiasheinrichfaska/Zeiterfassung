@@ -101,9 +101,9 @@ describe('backup', () => {
 describe('retention', () => {
   const book = (): TimeBook => {
     const b = bookWith(
-      day({ date: '2025-01-10' }), // January 2025
-      day({ date: '2025-10-05' }),
-      day({ date: '2025-11-30' }),
+      day({ date: '2025-01-10', recordedAt: '2025-01-11T08:00:00.000Z' }), // January 2025
+      day({ date: '2025-10-05', recordedAt: '2025-10-06T08:00:00.000Z' }),
+      day({ date: '2025-11-30', recordedAt: '2025-12-01T08:00:00.000Z' }),
       day({ date: '2026-11-23' }),
     );
     b.settings.retentionMonths = 12;
@@ -125,14 +125,16 @@ describe('retention', () => {
     let b = book();
     b = val(markExported(b, '2025-01', '2026-02-01T00:00:00.000Z'));
     const r = retentionReport(b, '2026-11-23');
-    expect(r).toEqual({ purgeable: ['2025-01'], blocked: ['2025-10'] });
+    expect(r).toEqual({ purgeable: ['2025-01'], blocked: ['2025-10'], stale: [] });
     const after = purgeExpired(b, '2026-11-23');
     expect(Object.keys(after.days)).toEqual(['2025-10-05', '2025-11-30', '2026-11-23']);
     expect(after.exportedMonths['2025-01']).toBeDefined(); // the proof of the export stays
   });
 
   it('never deletes a running day', () => {
-    let b = bookWith(day({ date: '2024-01-10', endMin: null, breaks: [] }));
+    let b = bookWith(
+      day({ date: '2024-01-10', endMin: null, breaks: [], recordedAt: '2024-01-10T08:00:00.000Z' }),
+    );
     b = val(markExported(b, '2024-01', '2024-02-01T00:00:00.000Z'));
     expect(Object.keys(purgeExpired(b, '2026-11-23').days)).toEqual(['2024-01-10']);
   });

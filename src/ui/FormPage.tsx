@@ -2,30 +2,43 @@ import { useState } from 'react';
 import {
   clockFromDate,
   dayToForm,
+  LOG_NOTICE,
   emptyForm,
   openDay,
   setWorkday,
   type WorkdayInput,
+  willBeLogged,
 } from '../logic/index.ts';
 import { useBookApi } from './bookContext.ts';
 import { DayForm } from './DayForm.tsx';
+import { useAskReason } from './promptContext.ts';
 import { styles } from './styles.ts';
 
 /** Enter or correct one day. Starts on a running day (to fix a forgotten „Gehen“), otherwise on today. */
 export function FormPage() {
   const { book, apply } = useBookApi();
+  const askReason = useAskReason();
   const [saved, setSaved] = useState<string | undefined>();
   const [version, setVersion] = useState(0);
   const running = openDay(book);
   const today = clockFromDate(new Date()).date;
   const initial = running ? dayToForm(running) : emptyForm(today);
 
-  const save = (input: WorkdayInput): boolean => {
+  const save = async (input: WorkdayInput): Promise<boolean> => {
     const exists = input.date in book.days;
     if (exists && !confirm(`Für den ${input.date} gibt es schon einen Eintrag. Ersetzen?`)) {
       return false;
     }
-    const ok = apply(setWorkday(book, input, new Date().toISOString()));
+    const today = clockFromDate(new Date()).date;
+    let reason: string | undefined;
+    if (willBeLogged([input.date], today)) {
+      const answer = await askReason(LOG_NOTICE);
+      if (!answer) return false;
+      reason = answer.reason;
+    }
+    const ok = apply(
+      setWorkday(book, input, new Date().toISOString(), { today, ...(reason ? { reason } : {}) }),
+    );
     if (ok) {
       setSaved(`Gespeichert: ${input.date}`);
       setVersion((v) => v + 1);

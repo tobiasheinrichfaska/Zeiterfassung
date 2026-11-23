@@ -10,6 +10,7 @@ import {
   type Workday,
 } from './model.ts';
 import { checkSettings, checkWorkday } from './validate.ts';
+import { addChanges, changeEntry, reasonOk, type ChangeContext } from './changes.ts';
 import { dayDiff, type Clock } from './time.ts';
 
 /** The one day that is still running (no departure yet), if any. */
@@ -125,30 +126,72 @@ export interface WorkdayInput {
   note: string;
 }
 
-/** Entry form: creates or replaces the working day of that date. */
-export function setWorkday(book: TimeBook, input: WorkdayInput, nowIso: string): Result<TimeBook> {
-  return withDay(book, { ...input, origin: 'manual', recordedAt: nowIso });
+/**
+ * Entry form: creates or replaces the working day of that date. A day that is already over (its date
+ * before `ctx.today`) is logged in the change log.
+ */
+export function setWorkday(
+  book: TimeBook,
+  input: WorkdayInput,
+  nowIso: string,
+  ctx: ChangeContext,
+): Result<TimeBook> {
+  if (!reasonOk(ctx.reason)) return fail('bad-reason');
+  const placed = withDay(book, { ...input, origin: 'manual', recordedAt: nowIso });
+  if (!placed.ok) return placed;
+  const entry = changeEntry(
+    book.days[input.date],
+    placed.value.days[input.date],
+    input.date,
+    nowIso,
+    ctx,
+  );
+  return entry ? addChanges(placed.value, [entry]) : placed;
 }
 
 /**
- * Corrects the day that stood at `oldDate`: replaces it by the input, and when the input has
- * another date, the old date's entry is removed in the same step (nothing is half-done).
+ * Corrects the day that stood at `oldDate`: replaces it by the input, and when the input has another
+ * date, the old date's entry is removed in the same step (nothing is half-done). A move is logged as
+ * a removal plus an addition that point at each other.
  */
 export function moveWorkday(
   book: TimeBook,
   oldDate: DateKey,
   input: WorkdayInput,
   nowIso: string,
+  ctx: ChangeContext,
 ): Result<TimeBook> {
-  if (!(oldDate in book.days)) return fail('no-such-day');
-  const without = oldDate === input.date ? ok(book) : removeWorkday(book, oldDate);
-  return without.ok ? setWorkday(without.value, input, nowIso) : without;
+  const old = book.days[oldDate];
+  if (!old) return fail('no-such-day');
+  if (oldDate === input.date) return setWorkday(book, input, nowIso, ctx);
+  if (!reasonOk(ctx.reason)) return fail('bad-reason');
+  const without: TimeBook = {
+    ...book,
+    days: Object.fromEntries(Object.entries(book.days).filter(([key]) => key !== oldDate)),
+  };
+  const placed = withDay(without, { ...input, origin: 'manual', recordedAt: nowIso });
+  if (!placed.ok) return placed;
+  const entries = [
+    changeEntry(old, undefined, oldDate, nowIso, ctx, { movedTo: input.date }),
+    changeEntry(book.days[input.date], placed.value.days[input.date], input.date, nowIso, ctx, {
+      movedFrom: oldDate,
+    }),
+  ].filter((e) => e !== undefined);
+  return addChanges(placed.value, entries);
 }
 
-export function removeWorkday(book: TimeBook, date: DateKey): Result<TimeBook> {
-  if (!(date in book.days)) return fail('no-such-day');
+export function removeWorkday(
+  book: TimeBook,
+  date: DateKey,
+  nowIso: string,
+  ctx: ChangeContext,
+): Result<TimeBook> {
+  const old = book.days[date];
+  if (!old) return fail('no-such-day');
+  if (!reasonOk(ctx.reason)) return fail('bad-reason');
   const days = Object.fromEntries(Object.entries(book.days).filter(([key]) => key !== date));
-  return ok({ ...book, days });
+  const entry = changeEntry(old, undefined, date, nowIso, ctx);
+  return addChanges({ ...book, days }, entry ? [entry] : []);
 }
 
 export function updateSettings(book: TimeBook, settings: Settings): Result<TimeBook> {

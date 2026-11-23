@@ -13,8 +13,8 @@ import { styles } from './styles.ts';
 interface Props {
   initial: DayFormFields;
   saveLabel: string;
-  /** Takes the day; returns whether it was stored (then the form may reset or close). */
-  onSave: (input: WorkdayInput) => boolean;
+  /** Takes the day (the page decides what happens next; it may ask first). */
+  onSave: (input: WorkdayInput) => unknown;
   onCancel?: () => void;
 }
 

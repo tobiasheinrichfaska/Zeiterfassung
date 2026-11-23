@@ -80,3 +80,15 @@ export function parseClock(text: string): number | null {
 /** `2026-12-01T06:00:00.000Z` → `01.12.2026` (the date part as written, no time zone shift). */
 export const formatIsoDate = (iso: string): string =>
   `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`;
+
+export const WEEKDAYS_SHORT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'] as const;
+
+/** `Mo 23.11.2026` (German order, with the weekday). */
+export function dateLabel(date: string): string {
+  const weekday = WEEKDAYS_SHORT[(((dayNumber(date) + 4) % 7) + 7) % 7];
+  return `${weekday} ${date.slice(8)}.${date.slice(5, 7)}.${date.slice(0, 4)}`;
+}
+
+/** `2026-12-01T06:05:00.000Z` → `01.12.2026 06:05 UTC` (the device's UTC time as written). */
+export const formatIsoDateTime = (iso: string): string =>
+  `${formatIsoDate(iso)} ${iso.slice(11, 16)} UTC`;
