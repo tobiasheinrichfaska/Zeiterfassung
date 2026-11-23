@@ -4,6 +4,10 @@ Arbeitszeit erfassen: wann man gekommen ist, wann man gegangen ist und wie viel 
 wahlweise als Eingabeformular oder mit Knöpfen wie an einer Stechuhr. Eine einzige HTML-Datei, die auf
 dem eigenen Gerät läuft und nichts ins Netz sendet.
 
+> **Nicht von einem Menschen sicherheitsgeprüft und noch nicht im Browser erprobt – nicht für echte Daten
+> verwenden.** Keine Rechtsberatung; Fristen und Aufbewahrung sind Startwerte. Meldungen:
+> [SECURITY.md](SECURITY.md).
+
 **Stand: Stufe 1 gebaut, noch nicht im Browser erprobt.** Stechuhr, Eingabeformular, Monatsansicht,
 verschlüsselter Speicher, Sicherungsdatei und der PDF-Export (Tabelle mit angehängtem JSON, nach PDF/A-3b gebaut und noch nicht validiert) sind da; die
 Logik und das PDF sind automatisch getestet, die Bildschirme noch von niemandem durchgespielt
