@@ -18,8 +18,8 @@ am Bildschirm gedacht.
 
 - Nach Schritt 1 steht dort „Seit HH:MM bei der Arbeit.“ und nur „Pause Beginn“ und „Gehen“ sind bedienbar.
 - Nach Schritt 2 steht dort „… Pause seit …“; nur „Pause Ende“ und „Gehen“ sind bedienbar.
-- Nach Schritt 4 steht „Heute ist der Arbeitstag beendet.“ und **„Kommen“ bleibt ausgegraut** (nicht
-  offensichtlich: pro Datum gibt es nur einen Tag; ein zweites Mal geht über „Tag eingeben“).
+- Nach Schritt 4 steht „Heute ist der Arbeitstag beendet.“ Der Knopf „Kommen“ ist wieder bedienbar:
+  siehe MT-14 (pro Datum gibt es nur einen Tag, „Kommen“ öffnet ihn nach einer Rückfrage wieder).
 - Die Uhrzeiten stammen von der Uhr des Geräts.
 
 ## MT-03: Gehen mit laufender Pause
@@ -81,3 +81,22 @@ am Bildschirm gedacht.
 **Erwartet**
 
 - Oben steht „Der Tag vom … läuft noch. Hier lässt er sich beenden oder korrigieren.“ und das Formular zeigt die Zeiten dieses Tages (Feld „Gehen“ leer). Mit einer Uhrzeit bei „Gehen“ und „Speichern“ ist der Tag beendet.
+
+## MT-14: Nach „Gehen“ wieder „Kommen“
+
+**Voraussetzung:** Heute wurde gestempelt und „Gehen“ gedrückt (MT-02), einige Minuten sind vergangen.
+
+**Schritte**
+
+1. Unter „Stempeln“ den Knopf „Kommen“ drücken.
+2. Die Rückfrage mit „Abbrechen“ beantworten.
+3. „Kommen“ noch einmal drücken und mit „OK“ bestätigen.
+4. Später „Gehen“ drücken, dann im Bereich „Monat“ den heutigen Tag öffnen („Bearbeiten“).
+
+**Erwartet**
+
+- Die Rückfrage lautet „Heute wurde schon um HH:MM gegangen. Wirklich wieder kommen? Die Zeit dazwischen zählt als Pause.“
+- Nach „Abbrechen“ ändert sich nichts.
+- Nach „OK“ steht dort wieder „Seit … bei der Arbeit.“ (der erste Beginn bleibt).
+- Im Formular steht die Lücke zwischen dem ersten „Gehen“ und dem zweiten „Kommen“ als Pause mit „von“ und „bis“; die Arbeitszeit enthält sie nicht.
+- Das ist derselbe Tag und keine nachträgliche Änderung.

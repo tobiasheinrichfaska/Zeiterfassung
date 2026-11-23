@@ -15,6 +15,8 @@ import {
   shiftMonth,
   stampIn,
   stampOut,
+  reopenCandidate,
+  reopenQuestion,
   stampEnabled,
   stampState,
   stampStatus,
@@ -43,7 +45,7 @@ describe('stamp state and buttons', () => {
     // The table must agree with the actions: an enabled button works, a disabled one is refused.
     let b = emptyBook();
     const probe = (book: typeof b, c = at('2026-11-23', 12, 45)) => ({
-      in: stampIn(book, c, NOW).ok,
+      in: stampIn(book, c, NOW, { confirmReopen: true }).ok,
       breakStart: breakStart(book, c, NOW).ok,
       breakEnd: breakEnd(book, c, NOW).ok,
       out: stampOut(book, c, NOW).ok,
@@ -55,13 +57,27 @@ describe('stamp state and buttons', () => {
     expect(probe(b)).toEqual(STAMP_ENABLED.onBreak);
   });
 
-  it('switches „Kommen“ off after a finished day, exactly where the logic would refuse', () => {
+  it('keeps „Kommen“ on after a finished day: it asks first (reopenCandidate)', () => {
     let b = val(stampIn(emptyBook(), at('2026-11-23', 8), NOW));
     b = val(stampOut(b, at('2026-11-23', 16), NOW));
-    expect(stampEnabled(b, at('2026-11-23', 17)).in).toBe(false);
-    expect(stampIn(b, at('2026-11-23', 17), NOW).ok).toBe(false);
-    expect(stampEnabled(b, at('2026-11-24', 8)).in).toBe(true);
+    expect(stampEnabled(b).in).toBe(true);
+    expect(reopenCandidate(b, at('2026-11-23', 17))?.date).toBe('2026-11-23');
+    expect(reopenCandidate(b, at('2026-11-24', 8))).toBeUndefined(); // another date: a new day
+    expect(stampIn(b, at('2026-11-23', 17), NOW)).toEqual({ ok: false, reason: 'day-exists' });
+    expect(stampIn(b, at('2026-11-23', 17), NOW, { confirmReopen: true }).ok).toBe(true);
     expect(stampIn(b, at('2026-11-24', 8), NOW).ok).toBe(true);
+  });
+
+  it('has no reopen candidate while a day runs or when nothing ended', () => {
+    const running = val(stampIn(emptyBook(), at('2026-11-23', 8), NOW));
+    expect(reopenCandidate(running, at('2026-11-23', 9))).toBeUndefined();
+    expect(reopenCandidate(emptyBook(), at('2026-11-23', 9))).toBeUndefined();
+  });
+
+  it('asks with the time of the last departure', () => {
+    expect(reopenQuestion(day({ endMin: 16 * 60 + 5 }))).toBe(
+      'Heute wurde schon um 16:05 gegangen. Wirklich wieder kommen? Die Zeit dazwischen zählt als Pause.',
+    );
   });
 
   it('writes a status line', () => {

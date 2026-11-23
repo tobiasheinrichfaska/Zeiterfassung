@@ -34,10 +34,22 @@ export const STAMP_ENABLED: Record<StampState, Record<StampAction, boolean>> = {
   onBreak: { in: false, breakStart: false, breakEnd: true, out: true },
 };
 
-/** Which stamp buttons are active now; „Kommen“ is also off when today already has a finished day. */
-export function stampEnabled(book: TimeBook, clock: Clock): Record<StampAction, boolean> {
-  const enabled = STAMP_ENABLED[stampState(book)];
-  return { ...enabled, in: enabled.in && !(clock.date in book.days) };
+/** Which stamp buttons are active now (the table above; „Kommen“ on a finished day asks first). */
+export function stampEnabled(book: TimeBook): Record<StampAction, boolean> {
+  return STAMP_ENABLED[stampState(book)];
+}
+
+/** The finished day of today that „Kommen“ would reopen (after a question), if any. */
+export function reopenCandidate(book: TimeBook, clock: Clock): Workday | undefined {
+  const day = book.days[clock.date];
+  return day && day.endMin !== null && !openDay(book) ? day : undefined;
+}
+
+export function reopenQuestion(day: Workday): string {
+  return (
+    `Heute wurde schon um ${formatClock(day.endMin ?? 0)} gegangen. Wirklich wieder kommen? ` +
+    'Die Zeit dazwischen zählt als Pause.'
+  );
 }
 
 export function stampState(book: TimeBook): StampState {

@@ -25,6 +25,7 @@ const REASONS: Record<Reason, true> = {
   'break-running': true,
   'no-break-running': true,
   'day-exists': true,
+  'clock-before-end': true,
   'no-such-day': true,
   'second-open-day': true,
   'too-many-days': true,

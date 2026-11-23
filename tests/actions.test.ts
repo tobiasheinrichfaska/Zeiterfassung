@@ -98,6 +98,127 @@ describe('stamp clock', () => {
   });
 });
 
+describe('„Kommen“ on a finished day (reopen)', () => {
+  const finished = () => {
+    let b = val(stampIn(emptyBook(), at('2026-11-23', 8), NOW));
+    b = val(breakStart(b, at('2026-11-23', 10), NOW));
+    b = val(breakEnd(b, at('2026-11-23', 10, 15), NOW));
+    return val(stampOut(b, at('2026-11-23', 12), NOW));
+  };
+  const reopen = { confirmReopen: true };
+
+  it('refuses without the confirmation', () => {
+    expect(stampIn(finished(), at('2026-11-23', 13), NOW)).toEqual({
+      ok: false,
+      reason: 'day-exists',
+    });
+    expect(stampIn(finished(), at('2026-11-23', 13), NOW, { confirmReopen: false })).toEqual({
+      ok: false,
+      reason: 'day-exists',
+    });
+  });
+
+  it('reopens the day: no departure, the gap is a break span, the old break stays', () => {
+    const b = val(stampIn(finished(), at('2026-11-23', 13), NOW, reopen));
+    const d = b.days['2026-11-23']!;
+    expect(d.endMin).toBeNull();
+    expect(d.startMin).toBe(480);
+    expect(d.breaks).toEqual([
+      { kind: 'span', fromMin: 600, toMin: 615 },
+      { kind: 'span', fromMin: 720, toMin: 780 },
+    ]);
+    expect(openDay(b)?.date).toBe('2026-11-23');
+  });
+
+  it('does not count the gap as working time', () => {
+    let b = val(stampIn(finished(), at('2026-11-23', 13), NOW, reopen));
+    b = val(stampOut(b, at('2026-11-23', 17), NOW));
+    // 8:00-17:00 = 9 h, minus 15 min and 60 min of breaks
+    expect(workMinutes(b.days['2026-11-23']!)).toBe(9 * 60 - 15 - 60);
+  });
+
+  it('keeps the origin and takes the new record time', () => {
+    const later = '2026-11-23T12:00:00.000Z';
+    const b = val(stampIn(finished(), at('2026-11-23', 13), later, reopen));
+    expect(b.days['2026-11-23']!.origin).toBe('stamp');
+    expect(b.days['2026-11-23']!.recordedAt).toBe(later);
+  });
+
+  it('adds no break when stamping in the very minute of the departure', () => {
+    const b = val(stampIn(finished(), at('2026-11-23', 12), NOW, reopen));
+    expect(b.days['2026-11-23']!.breaks).toEqual([{ kind: 'span', fromMin: 600, toMin: 615 }]);
+  });
+
+  it('refuses a clock before the departure (nothing changes)', () => {
+    const before = finished();
+    expect(stampIn(before, at('2026-11-23', 11, 59), NOW, reopen)).toEqual({
+      ok: false,
+      reason: 'clock-before-end',
+    });
+    expect(before.days['2026-11-23']!.endMin).toBe(720);
+  });
+
+  it('allows the last minute of the day as the end of the gap', () => {
+    const b = val(stampIn(finished(), at('2026-11-23', 23, 59), NOW, reopen));
+    expect(b.days['2026-11-23']!.breaks.at(-1)).toEqual({
+      kind: 'span',
+      fromMin: 720,
+      toMin: 1439,
+    });
+  });
+
+  it('then runs to the end of a shift past midnight, the gap counted as break', () => {
+    let b = val(stampIn(finished(), at('2026-11-23', 22), NOW, reopen));
+    b = val(stampOut(b, at('2026-11-24', 2), NOW)); // 8:00 .. 26:00 = 18 h
+    const d = b.days['2026-11-23']!;
+    expect(d.endMin).toBe(26 * 60);
+    expect(workMinutes(d)).toBe(18 * 60 - 15 - 10 * 60); // breaks 15 min + gap 12:00-22:00
+  });
+
+  it('refuses when the stretched shift would pass 24 hours', () => {
+    const b = val(stampIn(finished(), at('2026-11-23', 22), NOW, reopen));
+    expect(stampOut(b, at('2026-11-24', 9), NOW)).toEqual({ ok: false, reason: 'too-long' });
+  });
+
+  it('refuses when the day already has 20 breaks', () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      kind: 'span' as const,
+      fromMin: 500 + i * 10,
+      toMin: 505 + i * 10,
+    }));
+    const b = bookWith(day({ startMin: 480, endMin: 720, breaks: many }));
+    expect(stampIn(b, at('2026-11-23', 13), NOW, reopen)).toEqual({
+      ok: false,
+      reason: 'too-many-breaks',
+    });
+  });
+
+  it('reopens a day that was typed in the form as well (length breaks stay)', () => {
+    const b = bookWith(
+      day({ startMin: 480, endMin: 990, breaks: [{ kind: 'length', minutes: 30 }] }),
+    );
+    const r = val(stampIn(b, at('2026-11-23', 18), NOW, reopen));
+    expect(r.days['2026-11-23']!.breaks).toEqual([
+      { kind: 'length', minutes: 30 },
+      { kind: 'span', fromMin: 990, toMin: 1080 },
+    ]);
+  });
+
+  it('a stamp after midnight is a new day, not a reopen (the shift ended past midnight)', () => {
+    const night = bookWith(day({ startMin: 22 * 60, endMin: 26 * 60, breaks: [] })); // keyed the 23rd
+    const r = val(stampIn(night, at('2026-11-24', 3), NOW));
+    expect(Object.keys(r.days).sort()).toEqual(['2026-11-23', '2026-11-24']);
+  });
+
+  it('refuses while a day runs', () => {
+    const running = val(stampIn(emptyBook(), at('2026-11-23', 8), NOW));
+    expect(stampIn(running, at('2026-11-23', 9), NOW, reopen)).toEqual({
+      ok: false,
+      reason: 'already-running',
+    });
+  });
+});
+
 describe('entry form', () => {
   const input = { date: '2026-11-23', startMin: 480, endMin: 990, breaks: [], note: '' };
 

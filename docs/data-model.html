@@ -92,7 +92,7 @@
     <table>
       <tr><th>Funktion</th><th>Signatur</th><th>Zweck</th></tr>
       <tr><td>emptyBook</td><td>() → TimeBook</td><td>Leeres Buch mit den Werkseinstellungen</td></tr>
-      <tr><td>stampIn</td><td>(book, clock, nowIso) → Result&lt;TimeBook&gt;</td><td>Kommen stempeln; <code>already-running</code> oder <code>day-exists</code></td></tr>
+      <tr><td>stampIn</td><td>(book, clock, nowIso) → Result&lt;TimeBook&gt;</td><td>Kommen stempeln; <code>already-running</code> oder <code>day-exists</code>. Mit <code>confirmReopen</code> (nach Rückfrage) öffnet es den heute schon beendeten Tag wieder: kein Gehen mehr, die Zeit vom alten Gehen bis jetzt ist ein Pausen-Zeitraum (zählt nicht als Arbeitszeit); gleiche Minute: keine Pause; frühere Uhrzeit: <code>clock-before-end</code>. Derselbe Tag, keine nachträgliche Änderung</td></tr>
       <tr><td>breakStart</td><td>(book, clock, nowIso) → Result&lt;TimeBook&gt;</td><td>Pause beginnt</td></tr>
       <tr><td>breakEnd</td><td>(book, clock, nowIso) → Result&lt;TimeBook&gt;</td><td>Pause endet</td></tr>
       <tr><td>stampOut</td><td>(book, clock, nowIso) → Result&lt;TimeBook&gt;</td><td>Gehen stempeln; eine laufende Pause endet im selben Moment; Minuten nach Mitternacht zählen auf den Tag des Kommens</td></tr>
@@ -107,7 +107,7 @@
       <tr><td>exportBackup / importBackup</td><td>(book) → string / (text) → Result&lt;TimeBook&gt;</td><td>Sicherungsdatei schreiben und streng lesen (unbekannte Felder, Regelverstöße, zwei laufende Tage: abgelehnt)</td></tr>
       <tr><td>moveWorkday</td><td>(book, oldDate, WorkdayInput, nowIso) → Result&lt;TimeBook&gt;</td><td>Tag korrigieren, auch auf ein anderes Datum verschieben (alter Eintrag fällt im selben Schritt weg; bei Ablehnung bleibt alles unverändert)</td></tr>
       <tr><td>loadBook / serializeBook</td><td>(raw: string | null) → Loaded / (book) → string</td><td>Tresor-Fach <code>book</code> lesen und schreiben (gleiches Format wie die Sicherung); nicht lesbarer Inhalt wird gemeldet und nie durch ein leeres Buch ersetzt</td></tr>
-      <tr><td>stampState / stampEnabled / stampStatus</td><td>(book[, clock]) → …</td><td>Zustand der Stechuhr (idle, working, onBreak) und welche Knöpfe sinnvoll sind (Tabelle <code>STAMP_ENABLED</code>; „Kommen“ auch aus, wenn heute schon ein beendeter Tag existiert)</td></tr>
+      <tr><td>stampState / stampEnabled / stampStatus</td><td>(book[, clock]) → …</td><td>Zustand der Stechuhr (idle, working, onBreak) und welche Knöpfe sinnvoll sind (Tabelle <code>STAMP_ENABLED</code>); <code>reopenCandidate</code> / <code>reopenQuestion</code>: der heute beendete Tag, den „Kommen“ nach einer Rückfrage wieder öffnet</td></tr>
       <tr><td>parseDayForm / dayToForm / parseSettingsForm</td><td>(Formularfelder) → Result&lt;WorkdayInput | Settings&gt;</td><td>Textfelder lesen (nur Form; die Regeln prüft <code>checkWorkday</code>); Uhrzeiten vor dem Kommen zählen bei „Gehen am Folgetag“ zum nächsten Tag</td></tr>
       <tr><td>monthLayout / monthToPdf</td><td>(book, month, createdIso) → MonthLayout / Promise&lt;Result&lt;Uint8Array&gt;&gt;</td><td>Lesbare Monatsübersicht als PDF (eine Seite, Tabelle, Summe) mit <code>zeiterfassung-JJJJ-MM.xml</code> (= <code>monthToXml</code>) als eingebettetem Anhang, der nur der Bestätigung dient; neutrale Metadaten</td></tr>
       <tr><td>describeBook / replaceQuestion / pdfFileName / backupFileName</td><td>Hilfen</td><td>Beschreibung eines Buchs, Rückfrage vor dem Einspielen einer Sicherung, Dateinamen</td></tr>
@@ -139,6 +139,7 @@
       <tr><td>break-running</td><td>Eine Pause läuft schon</td></tr>
       <tr><td>no-break-running</td><td>Keine Pause läuft</td></tr>
       <tr><td>day-exists</td><td>Für dieses Datum gibt es schon einen beendeten Tag</td></tr>
+      <tr><td>clock-before-end</td><td>Beim erneuten „Kommen“ zeigt die Uhr eine frühere Zeit als das letzte „Gehen“</td></tr>
       <tr><td>no-such-day</td><td>Kein Tag an diesem Datum</td></tr>
       <tr><td>second-open-day</td><td>Zweiter laufender Tag</td></tr>
       <tr><td>too-many-days</td><td>Mehr als 4000 Tage</td></tr>

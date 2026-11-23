@@ -94,6 +94,7 @@ export type Reason =
   | 'break-running'
   | 'no-break-running'
   | 'day-exists'
+  | 'clock-before-end'
   | 'no-such-day'
   | 'second-open-day'
   | 'too-many-days'

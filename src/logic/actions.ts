@@ -35,10 +35,26 @@ function withDay(book: TimeBook, day: Workday): Result<TimeBook> {
   return ok({ ...book, days: { ...book.days, [day.date]: day } });
 }
 
-/** Stamp clock: arrival. One workday per date; stamping again on a finished day is refused. */
-export function stampIn(book: TimeBook, clock: Clock, nowIso: string): Result<TimeBook> {
+export interface StampInOptions {
+  /** Allows „Kommen“ on a day that already ended today: the day reopens (see `reopenDay`). */
+  confirmReopen?: boolean;
+}
+
+/**
+ * Stamp clock: arrival. One workday per date; on a finished day it is refused (`day-exists`) unless
+ * `confirmReopen` says the person was asked and agreed.
+ */
+export function stampIn(
+  book: TimeBook,
+  clock: Clock,
+  nowIso: string,
+  options: StampInOptions = {},
+): Result<TimeBook> {
   if (openDay(book)) return fail('already-running');
-  if (clock.date in book.days) return fail('day-exists');
+  const existing = book.days[clock.date];
+  if (existing) {
+    return options.confirmReopen ? reopenDay(book, existing, clock, nowIso) : fail('day-exists');
+  }
   return withDay(book, {
     date: clock.date,
     startMin: clock.minute,
@@ -48,6 +64,20 @@ export function stampIn(book: TimeBook, clock: Clock, nowIso: string): Result<Ti
     note: '',
     recordedAt: nowIso,
   });
+}
+
+/**
+ * The day that ended earlier today starts again: no departure, and the time from the old departure
+ * to now is a break span (it does not count as working time). Same minute: no gap, no break.
+ * A clock before the old departure is refused. This is the same day, not a later change.
+ */
+function reopenDay(book: TimeBook, day: Workday, clock: Clock, nowIso: string): Result<TimeBook> {
+  const end = day.endMin as number; // a day without departure would have been the open day
+  const now = minuteOn(day, clock);
+  if (now < end) return fail('clock-before-end');
+  const breaks: Break[] =
+    now > end ? [...day.breaks, { kind: 'span', fromMin: end, toMin: now }] : day.breaks;
+  return withDay(book, { ...day, endMin: null, breaks, recordedAt: nowIso });
 }
 
 /** Stamp clock: break begins. */

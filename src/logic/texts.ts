@@ -22,6 +22,7 @@ export const REASON_TEXTS: Record<Reason, string> = {
   'break-running': 'Eine Pause läuft schon.',
   'no-break-running': 'Es läuft keine Pause.',
   'day-exists': 'Für heute gibt es schon einen beendeten Arbeitstag. Bitte im Formular ändern.',
+  'clock-before-end': 'Die Uhr zeigt eine frühere Zeit als das letzte „Gehen“ dieses Tages.',
   'no-such-day': 'Für dieses Datum gibt es keinen Eintrag.',
   'second-open-day': 'Es kann nur einen laufenden Arbeitstag geben.',
   'too-many-days': 'Es sind höchstens 4000 Arbeitstage möglich.',

@@ -2,6 +2,8 @@ import {
   breakEnd,
   breakStart,
   clockFromDate,
+  reopenCandidate,
+  reopenQuestion,
   stampEnabled,
   stampIn,
   stampOut,
@@ -31,7 +33,7 @@ export function StampPage() {
   const { book, apply } = useBookApi();
   const now = new Date();
   const clock = clockFromDate(now);
-  const enabled = stampEnabled(book, clock);
+  const enabled = stampEnabled(book);
   const state = stampState(book);
 
   return (
@@ -49,7 +51,16 @@ export function StampPage() {
             disabled={!enabled[key]}
             onClick={() => {
               const at = new Date();
-              apply(run(book, clockFromDate(at), at.toISOString()));
+              const atClock = clockFromDate(at);
+              const reopen = key === 'in' ? reopenCandidate(book, atClock) : undefined;
+              if (reopen && !confirm(reopenQuestion(reopen))) return;
+              apply(
+                key === 'in'
+                  ? stampIn(book, atClock, at.toISOString(), {
+                      confirmReopen: reopen !== undefined,
+                    })
+                  : run(book, atClock, at.toISOString()),
+              );
             }}
           >
             {label}
