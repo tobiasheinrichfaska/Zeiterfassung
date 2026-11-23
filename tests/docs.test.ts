@@ -41,6 +41,49 @@ describe('docs/data-model.html against the code', () => {
       expect(html).toMatch(new RegExp(`<td>${name}</td><td>${value}</td>`));
     }
   });
+  it('names every public logic function that changes or reads the book', async () => {
+    const logic = (await import('../src/logic/index.ts')) as Record<string, unknown>;
+    const documented = [
+      'emptyBook',
+      'stampIn',
+      'breakStart',
+      'breakEnd',
+      'stampOut',
+      'setWorkday',
+      'moveWorkday',
+      'removeWorkday',
+      'updateSettings',
+      'openDay',
+      'checkWorkday',
+      'checkSettings',
+      'workMinutes',
+      'monthSummary',
+      'monthToXml',
+      'exportBackup',
+      'importBackup',
+      'loadBook',
+      'serializeBook',
+      'stampState',
+      'stampEnabled',
+      'stampStatus',
+      'parseDayForm',
+      'dayToForm',
+      'parseSettingsForm',
+      'monthLayout',
+      'monthToPdf',
+      'describeBook',
+      'replaceQuestion',
+      'pdfFileName',
+      'backupFileName',
+      'markExported',
+      'retentionReport',
+      'purgeExpired',
+    ];
+    for (const name of documented) {
+      expect(typeof logic[name], name).toBe('function');
+      expect(html, name).toContain(name);
+    }
+  });
   it('states the defaults', () => {
     expect(html).toContain(`<code>retentionMonths</code> ${DEFAULT_SETTINGS.retentionMonths}`);
   });

@@ -1,7 +1,7 @@
 # Manuelle Tests — Zeiterfassung
 
 Für Menschen am Bildschirm, ohne Programmierkenntnisse. Sie ergänzen die automatischen Tests und
-prüfen nur, was eine Person sehen muss.
+prüfen nur, was eine Person sehen muss (Aussehen, Gesten, Dateien, Dialoge).
 
 ## Vorbereitung
 
@@ -11,11 +11,15 @@ prüfen nur, was eine Person sehen muss.
 
 ## Stand
 
-Die Bildschirme der Stufe 1 sind noch nicht gebaut. Bis dahin gibt es nur den Test MT-01.
-Neue Fälle kommen mit den Bildschirmen (Stechuhr, Eingabeformular, Monat, Sicherung, PDF).
+Die Bildschirme der Stufe 1 sind gebaut, **aber noch von niemandem in einem echten Browser
+durchgespielt**: Die Fälle MT-02 bis MT-13 sind der erste Durchlauf. Automatisch geprüft sind die
+Logik, das Lesen und Schreiben im Tresor (Speicher im Arbeitsspeicher), das PDF (zurückgelesen, Anhang
+und Summen) und der Navigationsbaum.
 
 ## Dateien
 
-| Datei         | Inhalt              |
-| ------------- | ------------------- |
-| `01_start.md` | Start der Anwendung |
+| Datei                         | Inhalt                                                        |
+| ----------------------------- | ------------------------------------------------------------- |
+| `01_start.md`                 | Start der Anwendung                                           |
+| `02_stechuhr_und_formular.md` | Stempeln, Tag eintragen, Fehlermeldungen, Mitternacht         |
+| `03_monat_sicherung_pdf.md`   | Monat, PDF mit Anhang, Sicherung, Aufbewahrung, Räder, Tresor |

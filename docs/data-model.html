@@ -27,9 +27,10 @@
 
     <h2>1 Gespeicherte Form (Wurzel)</h2>
     <p>
-      Ein einziges Objekt, <code>TimeBook</code>. Es wird (ab Stufe&nbsp;1b) verschlüsselt im Tresor
-      (<code>local-vault</code>) abgelegt und ist zugleich der Inhalt der Sicherungsdatei
-      (<code>exportBackup</code> / <code>importBackup</code>).
+      Ein einziges Objekt, <code>TimeBook</code>. Es liegt verschlüsselt im Tresor
+      (<code>local-vault</code>, Präfix <code>zeiterfassung</code>, Fach <code>book</code>; das Präfix darf nie
+      geändert werden) und ist zugleich der Inhalt der Sicherungsdatei
+      (<code>exportBackup</code> / <code>importBackup</code>). Die Sicherungsdatei ist <em>nicht</em> verschlüsselt.
     </p>
     <table>
       <tr><th>Feld</th><th>Typ</th><th>Pflicht</th><th>Bedeutung</th></tr>
@@ -104,6 +105,12 @@
       <tr><td>monthSummary</td><td>(book, month) → MonthSummary</td><td>Zeilen, Summe der abgeschlossenen Tage, Zahl der laufenden Tage</td></tr>
       <tr><td>monthToXml</td><td>(book, month, createdIso) → Result&lt;string&gt;</td><td>Maschinenlesbare Monatszusammenfassung (Namensraum <code>urn:zeiterfassung:monat:1</code>) für die digitale Personalakte</td></tr>
       <tr><td>exportBackup / importBackup</td><td>(book) → string / (text) → Result&lt;TimeBook&gt;</td><td>Sicherungsdatei schreiben und streng lesen (unbekannte Felder, Regelverstöße, zwei laufende Tage: abgelehnt)</td></tr>
+      <tr><td>moveWorkday</td><td>(book, oldDate, WorkdayInput, nowIso) → Result&lt;TimeBook&gt;</td><td>Tag korrigieren, auch auf ein anderes Datum verschieben (alter Eintrag fällt im selben Schritt weg; bei Ablehnung bleibt alles unverändert)</td></tr>
+      <tr><td>loadBook / serializeBook</td><td>(raw: string | null) → Loaded / (book) → string</td><td>Tresor-Fach <code>book</code> lesen und schreiben (gleiches Format wie die Sicherung); nicht lesbarer Inhalt wird gemeldet und nie durch ein leeres Buch ersetzt</td></tr>
+      <tr><td>stampState / stampEnabled / stampStatus</td><td>(book[, clock]) → …</td><td>Zustand der Stechuhr (idle, working, onBreak) und welche Knöpfe sinnvoll sind (Tabelle <code>STAMP_ENABLED</code>; „Kommen“ auch aus, wenn heute schon ein beendeter Tag existiert)</td></tr>
+      <tr><td>parseDayForm / dayToForm / parseSettingsForm</td><td>(Formularfelder) → Result&lt;WorkdayInput | Settings&gt;</td><td>Textfelder lesen (nur Form; die Regeln prüft <code>checkWorkday</code>); Uhrzeiten vor dem Kommen zählen bei „Gehen am Folgetag“ zum nächsten Tag</td></tr>
+      <tr><td>monthLayout / monthToPdf</td><td>(book, month, createdIso) → MonthLayout / Promise&lt;Result&lt;Uint8Array&gt;&gt;</td><td>Lesbare Monatsübersicht als PDF (eine Seite, Tabelle, Summe) mit <code>zeiterfassung-JJJJ-MM.xml</code> (= <code>monthToXml</code>) als eingebettetem Anhang, der nur der Bestätigung dient; neutrale Metadaten</td></tr>
+      <tr><td>describeBook / replaceQuestion / pdfFileName / backupFileName</td><td>Hilfen</td><td>Beschreibung eines Buchs, Rückfrage vor dem Einspielen einer Sicherung, Dateinamen</td></tr>
       <tr><td>markExported</td><td>(book, month, whenIso) → Result&lt;TimeBook&gt;</td><td>Export eines Monats vermerken</td></tr>
       <tr><td>retentionReport / purgeExpired</td><td>(book, today) → RetentionReport / TimeBook</td><td>Fällige Monate: löschbar (exportiert) oder gesperrt (nicht exportiert); Löschen lässt laufende Tage und nicht exportierte Monate unberührt</td></tr>
       <tr><td>clockFromDate / parseClock / formatClock / formatDuration</td><td>Hilfen</td><td>Wanduhr aus einem Date, Uhrzeit lesen und anzeigen</td></tr>

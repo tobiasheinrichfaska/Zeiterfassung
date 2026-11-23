@@ -4,8 +4,10 @@ Arbeitszeit erfassen: wann man gekommen ist, wann man gegangen ist und wie viel 
 wahlweise als Eingabeformular oder mit Knöpfen wie an einer Stechuhr. Eine einzige HTML-Datei, die auf
 dem eigenen Gerät läuft und nichts ins Netz sendet.
 
-**Stand: Stufe 1 im Aufbau.** Die Logik (Datenmodell, Stechuhr, Monatssumme, XML, Sicherung, Aufbewahrung)
-ist fertig und getestet; die Bildschirme, der verschlüsselte Speicher und der PDF-Export folgen.
+**Stand: Stufe 1 gebaut, noch nicht im Browser erprobt.** Stechuhr, Eingabeformular, Monatsansicht,
+verschlüsselter Speicher, Sicherungsdatei und der PDF-Export (Tabelle mit angehängtem XML) sind da; die
+Logik und das PDF sind automatisch getestet, die Bildschirme noch von niemandem durchgespielt
+(`manual_tests/`).
 
 ## Stufen
 
