@@ -83,6 +83,7 @@ export function timestampLines(t: TimestampSection): string[] {
     lines.push(
       `Externer Zeitstempel: ${a.tsaId}, ${formatIsoDateTime(a.genTime)}, deckt die Stempel bis Nr. ${a.coveredN} ab`,
       `Hash: ${a.headHash}`,
+      `Seriennummer des Tokens: ${a.serial}`,
     );
   }
   lines.push(

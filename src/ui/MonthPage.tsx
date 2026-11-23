@@ -270,31 +270,66 @@ export function MonthPage() {
           {monthStamps.length === 0 ? (
             <p>Keine Stempel in diesem Monat.</p>
           ) : (
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  {['Nr.', 'Zeit (Geräteuhr)', 'Art', 'Tag', 'Prüfsumme'].map((h) => (
-                    <th key={h} style={styles.cell}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {monthStamps.map((s) => (
-                  <tr key={s.n}>
-                    <td style={styles.cell}>{s.n}</td>
-                    <td style={styles.cell}>
-                      {formatIsoDateTime(s.at)}
-                      {s.skew && <em> (Uhr zurückgestellt)</em>}
-                    </td>
-                    <td style={styles.cell}>{s.kind === 'seal' ? 'Abschluss' : 'Änderung'}</td>
-                    <td style={styles.cell}>{s.date}</td>
-                    <td style={styles.cell}>{s.hash.slice(0, 12)}…</td>
+            <div style={styles.scrollX}>
+              <table style={{ ...styles.table, fontSize: '0.85em' }}>
+                <thead>
+                  <tr>
+                    {['Nr.', 'Zeit (Geräteuhr), Art', 'Tag', 'Prüfsumme'].map((h) => (
+                      <th key={h} style={styles.cell}>
+                        {h}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {monthStamps.map((s) => (
+                    <tr key={s.n}>
+                      <td style={styles.cell}>{s.n}</td>
+                      <td style={styles.cell}>
+                        {formatIsoDateTime(s.at)}
+                        {s.skew && <em> (Uhr zurückgestellt)</em>}
+                        <br />
+                        {s.kind === 'seal' ? 'Abschluss' : 'Änderung'}
+                      </td>
+                      <td style={styles.cell}>{s.date}</td>
+                      <td style={{ ...styles.cell, wordBreak: 'break-all' }}>
+                        {s.hash.slice(0, 12)}…
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </details>
+        <details style={{ marginTop: '0.75rem' }}>
+          <summary>Externe Zeitstempel ({book.anchors.length})</summary>
+          {book.anchors.length === 0 ? (
+            <p>Noch kein externer Zeitstempel.</p>
+          ) : (
+            <div style={styles.scrollX}>
+              <table style={{ ...styles.table, fontSize: '0.85em' }}>
+                <thead>
+                  <tr>
+                    {['Dienst', 'Zeit laut Token (UTC)', 'bis Stempel', 'Seriennr.'].map((h) => (
+                      <th key={h} style={styles.cell}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {book.anchors.map((a) => (
+                    <tr key={a.coveredN}>
+                      <td style={styles.cell}>{a.tsaId}</td>
+                      <td style={styles.cell}>{formatIsoDateTime(a.genTime)}</td>
+                      <td style={styles.cell}>Nr. {a.coveredN}</td>
+                      <td style={{ ...styles.cell, wordBreak: 'break-all' }}>{a.serial}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </details>
       </section>

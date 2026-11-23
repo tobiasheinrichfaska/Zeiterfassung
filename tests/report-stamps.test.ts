@@ -39,7 +39,14 @@ const anchored = (b: TimeBook, n: number, genTime: string, now: string) =>
   val(
     addAnchor(
       b,
-      { tsaId: 'test-tsa', genTime, coveredN: n, headHash: b.stamps[n - 1]!.hash, token },
+      {
+        tsaId: 'test-tsa',
+        genTime,
+        serial: '0a1b',
+        coveredN: n,
+        headHash: b.stamps[n - 1]!.hash,
+        token,
+      },
       now,
     ),
   );
@@ -61,6 +68,7 @@ describe('the section „Zeitstempel“ in the JSON attachment', () => {
       {
         tsaId: 'test-tsa',
         genTime: iso(25, 8, 1),
+        serial: '0a1b',
         coveredN: 2,
         headHash: b.stamps[1]!.hash,
         token,

@@ -92,12 +92,15 @@ export interface StampBase {
 
 /** The proof of an external time stamping service for the chain head at `coveredN`. */
 export interface Anchor {
+  /** The service's id as the relay offers it (for example `freetsa`). */
   tsaId: string;
   /** The time the token says (not the device clock). */
   genTime: string;
+  /** The token's serial number (lower-case hex), as the service issued it. */
+  serial: string;
   coveredN: number;
   headHash: string;
-  /** The time stamp token as Base64 (standard alphabet), for checking with other tools. */
+  /** The RFC 3161 time stamp token (DER) as Base64 (standard alphabet), for checking with other tools. */
   token: string;
 }
 
@@ -150,6 +153,7 @@ export const LIMITS = {
   maxAnchors: 400,
   maxAnchorTokenChars: 16_384,
   maxTsaIdChars: 100,
+  maxSerialChars: 64,
   maxRelayChars: 200,
   /** The head of the chain should be covered by an anchor no older than this. */
   anchorMaxAgeHours: 24,

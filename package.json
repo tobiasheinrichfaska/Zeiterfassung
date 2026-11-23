@@ -26,7 +26,8 @@
     "pdf-lib": "1.17.1",
     "rad-navi": "github:tobiasheinrichfaska/rad-navi#v0.1.1",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "zeitstempel": "https://codeload.github.com/tobiasheinrichfaska/zeitstempel/tar.gz/28db8a89643c5f6ac84f60d9761e7c45f111c402"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

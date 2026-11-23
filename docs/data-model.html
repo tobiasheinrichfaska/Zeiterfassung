@@ -107,11 +107,12 @@
     </table>
     <table>
       <tr><th>Anchor / StampBase</th><th>Typ</th><th>Bedeutung</th></tr>
-      <tr><td>tsaId</td><td>Text, höchstens 100 Zeichen</td><td>Name des Zeitstempeldienstes</td></tr>
-      <tr><td>genTime</td><td>ISO-8601-Zeit</td><td>Die Zeit, die das Token nennt (nicht die Geräteuhr); darf höchstens 15 Minuten vor dem gestempelten Stempel und nicht mehr als 15 Minuten in der Zukunft liegen</td></tr>
+      <tr><td>tsaId</td><td>Text, höchstens 100 Zeichen</td><td>Kennung des Zeitstempeldienstes, wie der Weiterreicher sie nennt (zum Beispiel <code>freetsa</code>)</td></tr>
+      <tr><td>genTime</td><td>ISO-8601-Zeit</td><td>Die Zeit, die das <em>geprüfte</em> Token nennt (nicht die Geräteuhr, nicht die Angabe des Weiterreichers); darf höchstens 15 Minuten vor dem gestempelten Stempel und nicht mehr als 15 Minuten in der Zukunft liegen</td></tr>
+      <tr><td>serial</td><td>Kleinbuchstaben-Hex, 1 bis 64 Zeichen</td><td>Seriennummer des Tokens, wie der Dienst sie vergeben hat (aus dem geprüften Token)</td></tr>
       <tr><td>coveredN</td><td>ganze Zahl</td><td>Letzter abgedeckter Stempel; steigt von Anker zu Anker</td></tr>
       <tr><td>headHash</td><td>64 Hexziffern</td><td>hash des Stempels coveredN (das, was gestempelt wurde)</td></tr>
-      <tr><td>token</td><td>Base64 (Standard), höchstens 16384 Zeichen</td><td>Das Zeitstempel-Token; mit Werkzeugen wie <code>openssl ts</code> prüfbar</td></tr>
+      <tr><td>token</td><td>Base64 (Standard), höchstens 16384 Zeichen</td><td>Das Zeitstempel-Token nach RFC 3161 (DER); mit Werkzeugen wie <code>openssl ts</code> prüfbar</td></tr>
       <tr><td>StampBase: n, hash, at</td><td>wie Stamp</td><td>Der zuletzt gekürzte Stempel; die Kette beginnt bei n + 1 mit prev = hash</td></tr>
     </table>
     <h3>Settings</h3>
@@ -179,7 +180,7 @@
       <tr><td>appendStamp / sealElapsedDays</td><td>(book, kind, date, nowIso) → Result&lt;TimeBook&gt; / (book, today, nowIso)</td><td>Einen Stempel anhängen (Uhr rückwärts: <code>skew</code>, voll: <code>too-many-stamps</code>); für jeden beendeten, abgelaufenen Tag ohne „seal“ genau einen anhängen</td></tr>
       <tr><td>dayContentHash / stampHash / chainHead / checkChain / compactStamps / stampsOfMonth</td><td>…</td><td>Hashes, Kettenkopf, Prüfung der ganzen Kette (<code>chain-broken</code>), Kürzen des alten Teils nach dem Löschen (nur Monate ohne Tage, die ein Anker abdeckt oder bei ausgeschaltetem Dienst)</td></tr>
       <tr><td>anchorStatus</td><td>(book, nowIso) → AnchorStatus</td><td>off (kein Dienst) | nothing (keine Stempel) | ok (alle abgedeckt) | due (ungestempelte Stempel, der älteste höchstens 24 Stunden alt) | overdue (älter), mit Zahlen</td></tr>
-      <tr><td>anchorRequest / addAnchor / anchorFromOutcome / parseServiceAnswer</td><td>…</td><td>Was zu stempeln ist (Kopf der Kette), einen Anker streng prüfen und aufnehmen (<code>bad-anchor</code>, <code>anchor-skew</code>), Antwort des Dienstes streng lesen</td></tr>
+      <tr><td>anchorRequest / addAnchor / anchorFromOutcome / parseRelayAnswer / parseServiceList</td><td>…</td><td>Was zu stempeln ist (Kopf der Kette), einen Anker streng prüfen und aufnehmen (<code>bad-anchor</code>, <code>anchor-skew</code>), Antwort des Weiterreichers streng lesen (<code>service</code>, <code>genTime</code>, <code>accuracyMs</code>, <code>serial</code>, <code>token</code> in Base64url)</td></tr>
       <tr><td>parseRelayList / relayUsable / relayOk</td><td>…</td><td>Die beim Bauen erlaubten Weiterreicher-Adressen aus <code>VITE_TIMESTAMP_RELAY</code></td></tr>
       <tr><td>changeEntry / addChanges / changesOfMonth / changedDates</td><td>…</td><td>Protokolleintrag bilden (nur für abgelaufene Tage mit geänderten Zeiten), anfügen (voll = <code>too-many-changes</code>, nie stilles Verwerfen), Einträge und Daten eines Monats</td></tr>
       <tr><td>changeText / describeSnapshot / willBeLogged</td><td>(entry) → ChangeText</td><td>Deutsche Texte für Monatsansicht und Bericht; ob eine Änderung protokolliert wird (für die Rückfrage)</td></tr>
@@ -251,7 +252,8 @@
       <tr><td>stampsCompactAt</td><td>4500</td><td>Ab dieser Länge kürzt das Löschen die Kette um abgedeckte, gelöschte Monate</td></tr>
       <tr><td>maxAnchors</td><td>400</td><td>Externe Zeitstempel im Buch</td></tr>
       <tr><td>maxAnchorTokenChars</td><td>16384</td><td>Größe eines Tokens (Base64)</td></tr>
-      <tr><td>maxTsaIdChars</td><td>100</td><td>Name des Dienstes</td></tr>
+      <tr><td>maxTsaIdChars</td><td>100</td><td>Kennung des Dienstes</td></tr>
+      <tr><td>maxSerialChars</td><td>64</td><td>Seriennummer eines Tokens (Hex-Ziffern)</td></tr>
       <tr><td>maxRelayChars</td><td>200</td><td>Adresse des Weiterreichers</td></tr>
       <tr><td>anchorMaxAgeHours</td><td>24</td><td>Spätestens nach so vielen Stunden soll ein Stempel durch einen Anker abgedeckt sein (sonst overdue)</td></tr>
       <tr><td>anchorSkewMinutes</td><td>15</td><td>Wie weit die Zeit eines Tokens von der Geräteuhr abweichen darf</td></tr>
@@ -268,8 +270,18 @@
       Adressen: Eine zur Laufzeit eingetragene oder aus einer Sicherung gelesene Adresse, die nicht dazu gehört, wird beim
       Speichern abgelehnt (<code>bad-relay</code>) und beim Benutzen ignoriert; der Browser würde die Verbindung ohnehin
       verweigern. Der Weiterreicher sieht Zeitpunkt und Netzadresse der Anfrage, nie Zeiten oder Notizen: gesendet wird nur
-      der Hash des Kettenkopfes. Die Adresse und das Antwortformat (<code>{tsaId, genTime, token}</code>) sind
-      <strong>vorläufig</strong> und werden mit dem Weiterreicher-Paket abgeglichen.
+      der Hash des Kettenkopfes (32 Byte, Base64url ohne Auffüllzeichen).
+    </p>
+    <p>
+      Die Adresse ist die <em>Basisadresse</em> des Zeitstempel-Weiterreichers (Paket <code>zeitstempel</code>,
+      <code>docs/relay.md</code>): <code>GET &lt;Adresse&gt;/v1/services</code> nennt die Dienste,
+      <code>POST &lt;Adresse&gt;/v1/stamp/&lt;Kennung&gt;</code> mit <code>{"hash": "…"}</code> antwortet mit
+      <code>{service, genTime, accuracyMs, serial, token}</code>. Die App <strong>prüft das Token selbst</strong>
+      (<code>verifyTimestampToken</code> der Bibliothek, ohne Nonce) gegen den gesendeten Hash und die Wurzelzertifikate,
+      die mit der App ausgeliefert werden (<code>anchors/*.pem</code> der Bibliothek, gebündelt). Gespeichert werden Zeit
+      und Seriennummer <em>aus dem geprüften Token</em>, nicht die Angaben des Weiterreichers. Bei 429 wartet die App die
+      Zeit aus <code>Retry-After</code> ab; bei 502/504 nimmt sie den nächsten Dienst des Weiterreichers (höchstens drei).
+      Die Prüfung stellt <em>nicht</em> fest, ob ein Zertifikat gesperrt wurde (siehe <code>docs/grenzen.md</code> der Bibliothek).
     </p>
     <h2>7 Werkseinstellungen</h2>
     <p>

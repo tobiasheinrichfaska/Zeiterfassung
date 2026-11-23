@@ -103,8 +103,8 @@ function timestampsJson(t: TimestampSection, base: StampBase | null): Json {
   return {
     note:
       'Internal stamps use the device clock and prove no time; only the anchors (time stamp tokens, ' +
-      'Base64 of the DER token) prove a time. Check a token against the hash of its stamp, for example ' +
-      'with openssl ts.',
+      'Base64 of the RFC 3161 DER token, with the time of the service and its serial) prove a time. Check a ' +
+      "token against the hash of its stamp and the service's root certificate, for example with openssl ts.",
     chainHeadN: t.head?.n ?? 0,
     chainHeadHash: t.head?.hash ?? null,
     chainBase: base ? { n: base.n, hash: base.hash, at: base.at } : null,

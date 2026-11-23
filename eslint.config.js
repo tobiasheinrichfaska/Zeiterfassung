@@ -15,6 +15,7 @@ export default defineConfig([
     'archiv',
     'playwright-report',
     'test-results',
+    'e2e',
   ]),
   {
     files: ['**/*.{ts,tsx}'],

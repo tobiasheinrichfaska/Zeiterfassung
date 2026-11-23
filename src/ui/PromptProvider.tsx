@@ -1,7 +1,7 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { LIMITS } from '../logic/index.ts';
 import { PromptContext, type AskReason } from './promptContext.ts';
-import { styles } from './styles.ts';
+import { Z, styles } from './styles.ts';
 
 interface Pending {
   notice: string;
@@ -38,7 +38,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
           style={{
             position: 'fixed',
             inset: 0,
-            zIndex: 2000,
+            zIndex: Z.prompt,
             background: 'rgba(0,0,0,0.5)',
             display: 'grid',
             placeItems: 'center',
