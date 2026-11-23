@@ -13,8 +13,9 @@ import {
 import { fail, ok, type MonthKey, type Result, type TimeBook } from './model.ts';
 import { changeText, changesOfMonth, type ChangeText } from './changes.ts';
 import { monthSummary } from './summary.ts';
-import { formatDuration, formatIsoDate, isMonthKey } from './time.ts';
-import { attachmentName, monthToJson } from './report.ts';
+import { formatDuration, formatIsoDate, formatIsoDateTime, isMonthKey } from './time.ts';
+import { attachmentName, monthTimestamps, monthToJson, type TimestampSection } from './report.ts';
+import { anchorStatusText } from './texts.ts';
 import { sha256Hex } from './sha256.ts';
 import { monthLabel, rowTexts } from './view.ts';
 import { keepSupported } from './chars.ts';
@@ -30,6 +31,8 @@ export interface MonthLayout {
   openNote: string | null;
   changesTitle: string;
   changes: ChangeText[];
+  stampsTitle: string;
+  stampLines: string[];
   attachmentNote: string;
   hashLine: string;
   created: string;
@@ -44,6 +47,49 @@ export const COLUMN_HEADERS = [
   'Erfassung',
   'Notiz',
 ];
+
+/** The lines of the section „Zeitstempel“ (plain German sentences, no drawing). */
+export function timestampLines(t: TimestampSection): string[] {
+  const lines: string[] = [];
+  const first = t.stamps[0];
+  const last = t.stamps.at(-1);
+  lines.push(
+    `Interne Stempel in diesem Monat: ${t.stamps.length}` +
+      (first && last ? ` (Nr. ${first.n} bis ${last.n})` : ''),
+  );
+  if (t.head) {
+    lines.push(
+      `Kettenkopf bei Erstellung dieses Berichts: Nr. ${t.head.n}`,
+      `Hash: ${t.head.hash}`,
+    );
+  } else {
+    lines.push('Die Stempelkette ist noch leer.');
+  }
+  lines.push(anchorStatusText(t.status));
+  if (t.stamps.length > 0) {
+    lines.push(
+      t.firstUncovered
+        ? `Nicht durch einen externen Zeitstempel abgedeckt ab Stempel Nr. ${t.firstUncovered.n} (Geräteuhr: ${formatIsoDateTime(t.firstUncovered.at)}).`
+        : 'Alle Stempel dieses Monats sind durch externe Zeitstempel abgedeckt.',
+    );
+  }
+  lines.push(
+    t.skewNumbers.length > 0
+      ? `Stempel mit zurückgestellter Geräteuhr: Nr. ${t.skewNumbers.join(', ')}.`
+      : 'Keine Stempel mit zurückgestellter Geräteuhr.',
+  );
+  if (t.anchors.length === 0) lines.push('Keine externen Zeitstempel vorhanden.');
+  for (const a of t.anchors) {
+    lines.push(
+      `Externer Zeitstempel: ${a.tsaId}, ${formatIsoDateTime(a.genTime)}, deckt die Stempel bis Nr. ${a.coveredN} ab`,
+      `Hash: ${a.headHash}`,
+    );
+  }
+  lines.push(
+    'Die internen Stempel stammen von der Geräteuhr und belegen keine Zeit. Nur die externen Zeitstempel belegen die Zeit. Ihre Token stehen Base64-kodiert im angehängten JSON und lassen sich mit Werkzeugen wie „openssl ts“ prüfen.',
+  );
+  return lines;
+}
 
 export function monthLayout(
   book: TimeBook,
@@ -67,6 +113,8 @@ export function monthLayout(
         : null,
     changesTitle: 'Nachträgliche Änderungen',
     changes: changesOfMonth(book, month).map(changeText),
+    stampsTitle: 'Zeitstempel',
+    stampLines: timestampLines(monthTimestamps(book, month, createdIso)),
     attachmentNote: `Die angehängte Datei ${attachmentName(month)} enthält dieselben Angaben maschinenlesbar und dient nur der Bestätigung der lesbaren Daten.`,
     hashLine: `Prüfsumme der angehängten Datei (SHA-256): ${hash}`,
     created: `Erstellt am ${formatIsoDate(createdIso)}`,
@@ -317,6 +365,11 @@ export async function monthToPdf(
       if (c.reason) paragraph(`Begründung: ${c.reason}`, SIZE, font, 8);
     }
   }
+
+  y -= 10;
+  ensure(60);
+  line(layout.stampsTitle, 11, bold);
+  for (const l of layout.stampLines) paragraph(l, 8, font, 8);
 
   y -= 10;
   ensure(60);

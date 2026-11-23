@@ -285,43 +285,70 @@ describe('reading the log', () => {
   });
 });
 
-describe('format version 2 and the migration of version 1', () => {
-  it('writes version 2 with the log and reads it back unchanged', () => {
+describe('older versions are read and migrated without loss', () => {
+  it('writes version 3 and reads it back unchanged', () => {
     const b = val(setWorkday(bookWith(), input, LATER, { ...ctx, reason: 'x' }));
     expect(b.version).toBe(BOOK_VERSION);
-    expect(BOOK_VERSION).toBe(2);
+    expect(BOOK_VERSION).toBe(3);
     expect(val(importBackup(exportBackup(b)))).toEqual(b);
+  });
+
+  const v1 = () => ({
+    format: 'zeiterfassung-buch',
+    version: 1,
+    settings: { employeeLabel: 'Anna', retentionMonths: 12 },
+    days: { '2026-11-20': day({ date: '2026-11-20', note: 'Ärztin' }) },
+    exportedMonths: { '2026-10': '2026-11-01T06:00:00.000Z' },
   });
 
   it('reads a version 1 file and migrates it without loss', () => {
-    const v1 = {
-      format: 'zeiterfassung-buch',
-      version: 1,
-      settings: { employeeLabel: 'Anna', retentionMonths: 12 },
-      days: { '2026-11-20': day({ date: '2026-11-20', note: 'Ärztin' }) },
-      exportedMonths: { '2026-10': '2026-11-01T06:00:00.000Z' },
-    };
-    const b = val(importBackup(JSON.stringify(v1)));
-    expect(b.version).toBe(2);
+    const old = v1();
+    const b = val(importBackup(JSON.stringify(old)));
+    expect(b.version).toBe(3);
     expect(b.changes).toEqual([]);
-    expect(b.settings).toEqual(v1.settings);
-    expect(b.days).toEqual(v1.days);
-    expect(b.exportedMonths).toEqual(v1.exportedMonths);
-    // and the migrated book is a valid version 2 text
-    expect(val(importBackup(exportBackup(b)))).toEqual(b);
+    expect(b.stamps).toEqual([]);
+    expect(b.stampBase).toBeNull();
+    expect(b.anchors).toEqual([]);
+    expect(b.settings).toEqual({ ...old.settings, timestampRelay: '' });
+    expect(b.days).toEqual(old.days);
+    expect(b.exportedMonths).toEqual(old.exportedMonths);
+    expect(val(importBackup(exportBackup(b)))).toEqual(b); // and it is a valid version 3 text
   });
 
-  it('refuses version 1 with a log, version 2 without one, and other versions', () => {
+  it('reads a version 2 file (with its log) and migrates it without loss', () => {
+    const logged = val(setWorkday(bookWith(), input, LATER, { ...ctx, reason: 'Nachtrag' }));
+    const v2 = {
+      format: 'zeiterfassung-buch',
+      version: 2,
+      settings: { employeeLabel: 'Anna', retentionMonths: 12 },
+      days: logged.days,
+      exportedMonths: {},
+      changes: logged.changes,
+    };
+    const b = val(importBackup(JSON.stringify(v2)));
+    expect(b.version).toBe(3);
+    expect(b.changes).toEqual(logged.changes);
+    expect(b.days).toEqual(logged.days);
+    expect(b.settings.timestampRelay).toBe('');
+    expect(b.stamps).toEqual([]);
+  });
+
+  it('refuses a file whose members do not fit its version, and other versions', () => {
     const base = JSON.parse(exportBackup(emptyBook()));
-    expect(importBackup(JSON.stringify({ ...base, version: 1 })).ok).toBe(false); // has `changes`
+    expect(importBackup(JSON.stringify({ ...base, version: 1 })).ok).toBe(false); // has the newer members
+    expect(importBackup(JSON.stringify({ ...base, version: 2 })).ok).toBe(false);
     const { changes: _ignored, ...withoutLog } = base;
     void _ignored;
     expect(importBackup(JSON.stringify(withoutLog)).ok).toBe(false);
-    expect(importBackup(JSON.stringify({ ...base, version: 3 }))).toEqual({
+    expect(importBackup(JSON.stringify({ ...base, version: 4 }))).toEqual({
       ok: false,
       reason: 'unknown-version',
     });
     expect(importBackup(JSON.stringify({ ...base, version: 0 }))).toEqual({
+      ok: false,
+      reason: 'unknown-version',
+    });
+    expect(importBackup(JSON.stringify({ ...base, version: 2.5 }))).toEqual({
       ok: false,
       reason: 'unknown-version',
     });

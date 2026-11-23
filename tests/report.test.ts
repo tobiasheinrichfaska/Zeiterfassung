@@ -90,7 +90,7 @@ describe('monthToJson', () => {
               }),
               day({ date: '2026-10-31' }),
             ),
-            { employeeLabel: 'Anna', retentionMonths: 24 },
+            { employeeLabel: 'Anna', retentionMonths: 24, timestampRelay: '' },
           ),
         ),
         '2026-11-22',

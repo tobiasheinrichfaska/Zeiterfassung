@@ -20,7 +20,7 @@ function sample(): TimeBook {
       breaks: [{ kind: 'span', fromMin: 700, toMin: null }],
     }),
   );
-  b.settings = { employeeLabel: 'Anna', retentionMonths: 12 };
+  b.settings = { employeeLabel: 'Anna', retentionMonths: 12, timestampRelay: '' };
   b.exportedMonths['2026-10'] = '2026-11-01T06:00:00.000Z';
   return b;
 }

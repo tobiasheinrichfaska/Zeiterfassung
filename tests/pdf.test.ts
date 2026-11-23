@@ -25,7 +25,7 @@ const november = () =>
         day({ date: '2026-10-31' }), // other month
         day({ date: '2026-11-25', endMin: null, breaks: [] }), // running
       ),
-      { employeeLabel: 'Anna Beispiel', retentionMonths: 24 },
+      { employeeLabel: 'Anna Beispiel', retentionMonths: 24, timestampRelay: '' },
     ),
   );
 

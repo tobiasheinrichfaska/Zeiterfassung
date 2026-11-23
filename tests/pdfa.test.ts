@@ -26,6 +26,7 @@ const book = () =>
     updateSettings(bookWith(day({ date: '2026-11-23', note: 'Ärztin „Büro“ – 5 €' })), {
       employeeLabel: 'Anna',
       retentionMonths: 24,
+      timestampRelay: '',
     }),
   );
 

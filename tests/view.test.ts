@@ -192,18 +192,22 @@ describe('parseDayForm', () => {
 
 describe('parseSettingsForm', () => {
   it('reads label and retention', () => {
-    expect(val(parseSettingsForm('  Anna ', '36'))).toEqual({
+    expect(val(parseSettingsForm('  Anna ', '36', '', []))).toEqual({
       employeeLabel: 'Anna',
       retentionMonths: 36,
+      timestampRelay: '',
     });
   });
   it('refuses what is not a number or out of range', () => {
     for (const bad of ['', 'x', '-1', '1.5', '0', '121', '99999']) {
-      expect(parseSettingsForm('', bad)).toEqual({ ok: false, reason: 'bad-retention' });
+      expect(parseSettingsForm('', bad, '', [])).toEqual({ ok: false, reason: 'bad-retention' });
     }
-    expect(parseSettingsForm('x'.repeat(101), '24')).toEqual({ ok: false, reason: 'bad-label' });
-    expect(parseSettingsForm('', '1').ok).toBe(true);
-    expect(parseSettingsForm('', '120').ok).toBe(true);
+    expect(parseSettingsForm('x'.repeat(101), '24', '', [])).toEqual({
+      ok: false,
+      reason: 'bad-label',
+    });
+    expect(parseSettingsForm('', '1', '', []).ok).toBe(true);
+    expect(parseSettingsForm('', '120', '', []).ok).toBe(true);
   });
 });
 

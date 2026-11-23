@@ -19,7 +19,7 @@ describe('loadBook', () => {
   it('reports stored text that fails the rules instead of an empty book', () => {
     expect(loadBook('{not json')).toEqual({ kind: 'unreadable', reason: 'bad-backup' });
     expect(loadBook('')).toEqual({ kind: 'unreadable', reason: 'bad-backup' });
-    const newer = JSON.stringify({ ...emptyBook(), version: 3 });
+    const newer = JSON.stringify({ ...emptyBook(), version: 4 });
     expect(loadBook(newer)).toEqual({ kind: 'unreadable', reason: 'unknown-version' });
   });
 

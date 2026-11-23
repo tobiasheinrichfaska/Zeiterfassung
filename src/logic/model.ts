@@ -60,11 +60,54 @@ export interface ChangeEntry {
   movedFrom: DateKey | null;
 }
 
+export type StampKind = 'change' | 'seal';
+export const STAMP_KINDS: readonly StampKind[] = ['change', 'seal'];
+
+/**
+ * An internal time stamp: one link of a hash chain. Made at every finished write to a day (`change`)
+ * and once for every day that has ended (`seal`). It holds a hash of the day's state, not the state.
+ * The time `at` is the device clock; only an `Anchor` proves a time.
+ */
+export interface Stamp {
+  /** 1, 2, 3 … without gaps (after a base: base.n + 1 …). */
+  n: number;
+  at: string;
+  kind: StampKind;
+  date: DateKey;
+  /** SHA-256 of the canonical state of the day, or of the deletion marker for a removed day. */
+  contentHash: string;
+  /** The `hash` of the stamp before (64 zeros for the first). */
+  prev: string;
+  /** The clock was earlier than at the stamp before. */
+  skew: boolean;
+  /** SHA-256 of the canonical form of all the fields above. */
+  hash: string;
+}
+
+export interface StampBase {
+  n: number;
+  hash: string;
+  at: string;
+}
+
+/** The proof of an external time stamping service for the chain head at `coveredN`. */
+export interface Anchor {
+  tsaId: string;
+  /** The time the token says (not the device clock). */
+  genTime: string;
+  coveredN: number;
+  headHash: string;
+  /** The time stamp token as Base64 (standard alphabet), for checking with other tools. */
+  token: string;
+}
+
 export interface Settings {
   /** Free text printed on the summary (a name or a staff number); may be empty. */
   employeeLabel: string;
   /** Exported months are deleted from the device this many months after their end. */
   retentionMonths: number;
+  /** Address of the relay for external time stamps; empty = off. Must be one the build allows. */
+  timestampRelay: string;
 }
 
 export interface TimeBook {
@@ -76,10 +119,16 @@ export interface TimeBook {
   exportedMonths: Record<MonthKey, string>;
   /** Every change to a day that was already over (date before today), oldest first. */
   changes: ChangeEntry[];
+  /** The hash chain of every written day (see `Stamp`), oldest first; contains no times or notes. */
+  stamps: Stamp[];
+  /** What the chain starts from when its oldest part was dropped (null = it starts at stamp 1). */
+  stampBase: StampBase | null;
+  /** External time stamps that cover the chain up to `coveredN`, oldest first. */
+  anchors: Anchor[];
 }
 
 export const BOOK_FORMAT = 'zeiterfassung-buch';
-export const BOOK_VERSION = 2;
+export const BOOK_VERSION = 3;
 
 /** Every limit in one place; tests tie their boundaries to it. */
 export const LIMITS = {
@@ -93,12 +142,28 @@ export const LIMITS = {
   retentionMonthsMin: 1,
   retentionMonthsMax: 120,
   maxDays: 4000,
-  maxBackupChars: 5_000_000,
+  maxBackupChars: 12_000_000,
+  /** The chain may not grow past this; compaction (after purging) frees room, nothing is dropped silently. */
+  maxStamps: 6000,
+  /** From this length on, purging also shortens the chain (only what is gone and covered). */
+  stampsCompactAt: 4500,
+  maxAnchors: 400,
+  maxAnchorTokenChars: 16_384,
+  maxTsaIdChars: 100,
+  maxRelayChars: 200,
+  /** The head of the chain should be covered by an anchor no older than this. */
+  anchorMaxAgeHours: 24,
+  /** How far a token's time may differ from the device clock before the token is refused. */
+  anchorSkewMinutes: 15,
   maxChanges: 2000,
   maxReasonChars: 200,
 } as const;
 
-export const DEFAULT_SETTINGS: Settings = { employeeLabel: '', retentionMonths: 24 };
+export const DEFAULT_SETTINGS: Settings = {
+  employeeLabel: '',
+  retentionMonths: 24,
+  timestampRelay: '',
+};
 
 export function emptyBook(): TimeBook {
   return {
@@ -108,6 +173,9 @@ export function emptyBook(): TimeBook {
     days: {},
     exportedMonths: {},
     changes: [],
+    stamps: [],
+    stampBase: null,
+    anchors: [],
   };
 }
 
@@ -127,6 +195,12 @@ export type Reason =
   | 'bad-note'
   | 'bad-label'
   | 'bad-reason'
+  | 'chain-broken'
+  | 'too-many-stamps'
+  | 'bad-anchor'
+  | 'anchor-skew'
+  | 'too-many-anchors'
+  | 'bad-relay'
   | 'wrong-password'
   | 'password-required'
   | 'weak-password'

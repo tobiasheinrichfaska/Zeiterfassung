@@ -273,10 +273,20 @@ describe('entry form', () => {
 describe('settings', () => {
   it('stores valid settings and refuses invalid ones', () => {
     const b = val(
-      updateSettings(emptyBook(), { employeeLabel: 'Pers.-Nr. 17', retentionMonths: 36 }),
+      updateSettings(emptyBook(), {
+        employeeLabel: 'Pers.-Nr. 17',
+        retentionMonths: 36,
+        timestampRelay: '',
+      }),
     );
-    expect(b.settings).toEqual({ employeeLabel: 'Pers.-Nr. 17', retentionMonths: 36 });
-    expect(updateSettings(b, { employeeLabel: '', retentionMonths: 0 })).toEqual({
+    expect(b.settings).toEqual({
+      employeeLabel: 'Pers.-Nr. 17',
+      retentionMonths: 36,
+      timestampRelay: '',
+    });
+    expect(
+      updateSettings(b, { employeeLabel: '', retentionMonths: 0, timestampRelay: '' }),
+    ).toEqual({
       ok: false,
       reason: 'bad-retention',
     });

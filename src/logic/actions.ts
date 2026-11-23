@@ -11,6 +11,7 @@ import {
 } from './model.ts';
 import { checkSettings, checkWorkday } from './validate.ts';
 import { addChanges, changeEntry, reasonOk, type ChangeContext } from './changes.ts';
+import { appendStamp } from './stamps.ts';
 import { dayDiff, type Clock } from './time.ts';
 
 /** The one day that is still running (no departure yet), if any. */
@@ -33,7 +34,13 @@ function withDay(book: TimeBook, day: Workday): Result<TimeBook> {
     const other = openDay(book);
     if (other && other.date !== day.date) return fail('second-open-day');
   }
-  return ok({ ...book, days: { ...book.days, [day.date]: day } });
+  // every finished write is stamped (a hash chain; the time of the stamp is the record time)
+  return appendStamp(
+    { ...book, days: { ...book.days, [day.date]: day } },
+    'change',
+    day.date,
+    day.recordedAt,
+  );
 }
 
 export interface StampInOptions {
@@ -165,11 +172,17 @@ export function moveWorkday(
   if (!old) return fail('no-such-day');
   if (oldDate === input.date) return setWorkday(book, input, nowIso, ctx);
   if (!reasonOk(ctx.reason)) return fail('bad-reason');
-  const without: TimeBook = {
-    ...book,
-    days: Object.fromEntries(Object.entries(book.days).filter(([key]) => key !== oldDate)),
-  };
-  const placed = withDay(without, { ...input, origin: 'manual', recordedAt: nowIso });
+  const removed = appendStamp(
+    {
+      ...book,
+      days: Object.fromEntries(Object.entries(book.days).filter(([key]) => key !== oldDate)),
+    },
+    'change',
+    oldDate,
+    nowIso,
+  );
+  if (!removed.ok) return removed;
+  const placed = withDay(removed.value, { ...input, origin: 'manual', recordedAt: nowIso });
   if (!placed.ok) return placed;
   const entries = [
     changeEntry(old, undefined, oldDate, nowIso, ctx, { movedTo: input.date }),
@@ -190,8 +203,10 @@ export function removeWorkday(
   if (!old) return fail('no-such-day');
   if (!reasonOk(ctx.reason)) return fail('bad-reason');
   const days = Object.fromEntries(Object.entries(book.days).filter(([key]) => key !== date));
+  const stamped = appendStamp({ ...book, days }, 'change', date, nowIso);
+  if (!stamped.ok) return stamped;
   const entry = changeEntry(old, undefined, date, nowIso, ctx);
-  return addChanges({ ...book, days }, entry ? [entry] : []);
+  return addChanges(stamped.value, entry ? [entry] : []);
 }
 
 export function updateSettings(book: TimeBook, settings: Settings): Result<TimeBook> {

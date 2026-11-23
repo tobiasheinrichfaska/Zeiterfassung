@@ -35,10 +35,13 @@
     <table>
       <tr><th>Feld</th><th>Typ</th><th>Pflicht</th><th>Bedeutung</th></tr>
       <tr><td>format</td><td>"zeiterfassung-buch"</td><td>ja</td><td>Kennung des Formats</td></tr>
-      <tr><td>version</td><td>2</td><td>ja</td><td>Formatversion. Version 1 (ohne Änderungsprotokoll) wird beim Einlesen verlustfrei zu Version 2 mit leerem Protokoll; jede andere Version wird mit <code>unknown-version</code> abgelehnt</td></tr>
+      <tr><td>version</td><td>3</td><td>ja</td><td>Formatversion. Die Versionen 1 und 2 werden beim Einlesen verlustfrei zu Version 3 (Version 1: leeres Änderungsprotokoll; beide: leere Stempelkette, keine Anker, Weiterreicher aus); jede andere Version wird mit <code>unknown-version</code> abgelehnt</td></tr>
       <tr><td>settings</td><td>Settings</td><td>ja</td><td>Einstellungen</td></tr>
       <tr><td>days</td><td>Record&lt;DateKey, Workday&gt;</td><td>ja</td><td>Arbeitstage, Schlüssel = Datum <code>JJJJ-MM-TT</code>; höchstens ein Tag je Datum</td></tr>
       <tr><td>exportedMonths</td><td>Record&lt;MonthKey, ISO-Zeit&gt;</td><td>ja</td><td>Monat → Zeitpunkt des Exports der Monatszusammenfassung; nur Monate, die danach nicht mehr verändert wurden, dürfen nach Ablauf der Aufbewahrung gelöscht werden</td></tr>
+      <tr><td>stamps</td><td>Stamp[]</td><td>ja (ab Version 3)</td><td>Stempelkette: ein Glied je abgeschlossener Schreibaktion an einem Tag und ein „seal“ je abgelaufenem Tag; Hashes, keine Inhalte; höchstens 6000</td></tr>
+      <tr><td>stampBase</td><td>StampBase oder null</td><td>ja (ab Version 3)</td><td>Wovon die Kette ausgeht, wenn ihr alter Teil gekürzt wurde (n, hash, at); null = die Kette beginnt bei Stempel 1</td></tr>
+      <tr><td>anchors</td><td>Anchor[]</td><td>ja (ab Version 3)</td><td>Externe Zeitstempel für den Kopf der Kette, mit steigendem <code>coveredN</code>; höchstens 400</td></tr>
       <tr><td>changes</td><td>ChangeEntry[]</td><td>ja (ab Version 2)</td><td>Änderungsprotokoll: jede Änderung an einem abgelaufenen Tag (Datum vor dem heutigen lokalen Datum), älteste zuerst, höchstens 2000</td></tr>
     </table>
 
@@ -85,10 +88,37 @@
       <tr><td>movedTo / movedFrom</td><td>DateKey oder null</td><td>ja</td><td>Verschieben ist „removed“ (movedTo) plus „added“ oder „changed“ (movedFrom); das andere Datum ist der Verweis</td></tr>
     </table>
     <p><strong>DaySnapshot:</strong> startMin, endMin, breaks, note, origin (wie bei Workday, ohne Datum und recordedAt). Beim Einlesen gelten für den Zustand dieselben Regeln wie für einen Arbeitstag.</p>
+    <h3>Stamp, StampBase, Anchor (Zeitstempel)</h3>
+    <p class="note">
+      Die interne Stempelkette hält fest, <em>dass</em> und <em>in welcher Reihenfolge</em> geschrieben wurde; ihre Zeit ist
+      die <strong>Geräteuhr</strong> und belegt nichts. Nur die externen Anker belegen eine Zeit (sofern der Dienst vertrauenswürdig ist).
+      Die Hashes sind SHA-256 über die kanonische Form (Schlüssel sortiert, nur ganze Zahlen).
+    </p>
+    <table>
+      <tr><th>Stamp</th><th>Typ</th><th>Bedeutung</th></tr>
+      <tr><td>n</td><td>ganze Zahl</td><td>1, 2, 3 … ohne Lücke (nach einer Base: base.n + 1 …)</td></tr>
+      <tr><td>at</td><td>ISO-8601-Zeit</td><td>Geräteuhr beim Schreiben</td></tr>
+      <tr><td>kind</td><td>"change" | "seal"</td><td>change: abgeschlossene Schreibaktion (Stempel-Aktion, Formular, Verschieben, Löschen, Wiederöffnen); seal: einmal je Tag, sobald er abgelaufen und beendet ist</td></tr>
+      <tr><td>date</td><td>DateKey</td><td>Betroffener Tag</td></tr>
+      <tr><td>contentHash</td><td>64 Hexziffern</td><td>SHA-256 des kanonischen Zustands des Tages (Datum, Zeiten, Pausen, Herkunft, Notiz, Aufzeichnungszeit) oder der Löschmarke <code>{date, deleted: true}</code></td></tr>
+      <tr><td>prev</td><td>64 Hexziffern</td><td>hash des Vorgängers (64 Nullen beim ersten)</td></tr>
+      <tr><td>skew</td><td>Wahrheitswert</td><td>Die Uhr stand früher als beim Vorgänger (der Stempel wird trotzdem angehängt)</td></tr>
+      <tr><td>hash</td><td>64 Hexziffern</td><td>SHA-256 über die kanonische Form von n, at, kind, date, contentHash, prev und skew</td></tr>
+    </table>
+    <table>
+      <tr><th>Anchor / StampBase</th><th>Typ</th><th>Bedeutung</th></tr>
+      <tr><td>tsaId</td><td>Text, höchstens 100 Zeichen</td><td>Name des Zeitstempeldienstes</td></tr>
+      <tr><td>genTime</td><td>ISO-8601-Zeit</td><td>Die Zeit, die das Token nennt (nicht die Geräteuhr); darf höchstens 15 Minuten vor dem gestempelten Stempel und nicht mehr als 15 Minuten in der Zukunft liegen</td></tr>
+      <tr><td>coveredN</td><td>ganze Zahl</td><td>Letzter abgedeckter Stempel; steigt von Anker zu Anker</td></tr>
+      <tr><td>headHash</td><td>64 Hexziffern</td><td>hash des Stempels coveredN (das, was gestempelt wurde)</td></tr>
+      <tr><td>token</td><td>Base64 (Standard), höchstens 16384 Zeichen</td><td>Das Zeitstempel-Token; mit Werkzeugen wie <code>openssl ts</code> prüfbar</td></tr>
+      <tr><td>StampBase: n, hash, at</td><td>wie Stamp</td><td>Der zuletzt gekürzte Stempel; die Kette beginnt bei n + 1 mit prev = hash</td></tr>
+    </table>
     <h3>Settings</h3>
     <table>
       <tr><th>Feld</th><th>Typ</th><th>Pflicht</th><th>Bedeutung</th></tr>
       <tr><td>employeeLabel</td><td>Text, höchstens 100 Zeichen</td><td>ja (leer erlaubt)</td><td>Name oder Personalnummer auf der Monatszusammenfassung</td></tr>
+      <tr><td>timestampRelay</td><td>Text (Adresse) oder leer</td><td>ja (ab Version 3)</td><td>Adresse des Weiterreichers für externe Zeitstempel; leer = aus. https (http nur für den eigenen Rechner). Benutzt wird sie nur, wenn sie zu den beim Bauen erlaubten Adressen gehört</td></tr>
       <tr><td>retentionMonths</td><td>ganze Zahl 1–120</td><td>ja</td><td>Exportierte Monate werden so viele Monate nach ihrem Ende vom Gerät gelöscht</td></tr>
     </table>
 
@@ -111,6 +141,8 @@
       <tr><td>TimeBook</td><td>settings</td><td>Settings</td><td>1 : 1 (eingebettet)</td></tr>
       <tr><td>TimeBook</td><td>days</td><td>Workday</td><td>1 : 0..4000, Schlüssel = Datum</td></tr>
       <tr><td>Workday</td><td>breaks</td><td>Break</td><td>1 : 0..20 (eingebettet)</td></tr>
+      <tr><td>TimeBook</td><td>stamps</td><td>Stamp</td><td>1 : 0..6000 (eingebettet), verkettet über <code>prev</code>/<code>hash</code>; <code>date</code> verweist auf einen Tag (der gelöscht sein kann)</td></tr>
+      <tr><td>TimeBook</td><td>anchors</td><td>Anchor</td><td>1 : 0..400, <code>coveredN</code>/<code>headHash</code> verweisen auf einen Stempel (oder die Base)</td></tr>
       <tr><td>TimeBook</td><td>changes</td><td>ChangeEntry</td><td>1 : 0..2000 (eingebettet); <code>date</code> verweist auf einen Tag (der inzwischen fehlen kann), <code>movedTo</code>/<code>movedFrom</code> auf ein zweites Datum</td></tr>
       <tr><td>TimeBook</td><td>exportedMonths</td><td>Monat (aus den Tagen abgeleitet, keine eigene Entität)</td><td>1 : 0..n, Schlüssel = <code>JJJJ-MM</code></td></tr>
     </table>
@@ -143,6 +175,12 @@
       <tr><td>xmpPacket / srgbIccProfile</td><td>(info) → string / () → Uint8Array</td><td>Das XMP-Paket (stimmt mit den Info-Einträgen überein) und das im Code erzeugte sRGB-Profil (ICC 2.1)</td></tr>
       <tr><td>keepSupported / wrapText</td><td>(text, supported, replacement?) → string / (text, width, measure) → string[]</td><td>Zeichen, die die Schrift nicht kann, werden je Zeichen durch „?“ ersetzt; Zeilenumbruch für den PDF-Text</td></tr>
       <tr><td>describeBook / replaceQuestion / pdfFileName / backupFileName</td><td>Hilfen</td><td>Beschreibung eines Buchs, Rückfrage vor dem Einspielen einer Sicherung, Dateinamen</td></tr>
+      <tr><td>sha256Hex / sha256Bytes</td><td>(text) → string / (bytes) → Uint8Array</td><td>SHA-256, synchron, ohne Abhängigkeit (NIST-Vektoren, Vergleich mit <code>node:crypto</code>)</td></tr>
+      <tr><td>appendStamp / sealElapsedDays</td><td>(book, kind, date, nowIso) → Result&lt;TimeBook&gt; / (book, today, nowIso)</td><td>Einen Stempel anhängen (Uhr rückwärts: <code>skew</code>, voll: <code>too-many-stamps</code>); für jeden beendeten, abgelaufenen Tag ohne „seal“ genau einen anhängen</td></tr>
+      <tr><td>dayContentHash / stampHash / chainHead / checkChain / compactStamps / stampsOfMonth</td><td>…</td><td>Hashes, Kettenkopf, Prüfung der ganzen Kette (<code>chain-broken</code>), Kürzen des alten Teils nach dem Löschen (nur Monate ohne Tage, die ein Anker abdeckt oder bei ausgeschaltetem Dienst)</td></tr>
+      <tr><td>anchorStatus</td><td>(book, nowIso) → AnchorStatus</td><td>off (kein Dienst) | nothing (keine Stempel) | ok (alle abgedeckt) | due (ungestempelte Stempel, der älteste höchstens 24 Stunden alt) | overdue (älter), mit Zahlen</td></tr>
+      <tr><td>anchorRequest / addAnchor / anchorFromOutcome / parseServiceAnswer</td><td>…</td><td>Was zu stempeln ist (Kopf der Kette), einen Anker streng prüfen und aufnehmen (<code>bad-anchor</code>, <code>anchor-skew</code>), Antwort des Dienstes streng lesen</td></tr>
+      <tr><td>parseRelayList / relayUsable / relayOk</td><td>…</td><td>Die beim Bauen erlaubten Weiterreicher-Adressen aus <code>VITE_TIMESTAMP_RELAY</code></td></tr>
       <tr><td>changeEntry / addChanges / changesOfMonth / changedDates</td><td>…</td><td>Protokolleintrag bilden (nur für abgelaufene Tage mit geänderten Zeiten), anfügen (voll = <code>too-many-changes</code>, nie stilles Verwerfen), Einträge und Daten eines Monats</td></tr>
       <tr><td>changeText / describeSnapshot / willBeLogged</td><td>(entry) → ChangeText</td><td>Deutsche Texte für Monatsansicht und Bericht; ob eine Änderung protokolliert wird (für die Rückfrage)</td></tr>
       <tr><td>withDraft / parseDrafts / serializeDrafts / readFormFields</td><td>Hilfen</td><td>Entwürfe setzen und entfernen, streng lesen und schreiben</td></tr>
@@ -175,6 +213,12 @@
       <tr><td>password-required</td><td>Verschlüsselte Sicherung ohne Passwort</td></tr>
       <tr><td>weak-password</td><td>Passwort nicht 8 bis 256 Zeichen</td></tr>
       <tr><td>passwords-differ</td><td>Die beiden Passwörter sind verschieden</td></tr>
+      <tr><td>chain-broken</td><td>Stempelkette unterbrochen oder verändert (Lücke, Prüfsumme, Vorgänger)</td></tr>
+      <tr><td>too-many-stamps</td><td>Die Stempelkette hat 6000 Stempel</td></tr>
+      <tr><td>bad-anchor</td><td>Externer Zeitstempel ungültig oder passt nicht zur Kette</td></tr>
+      <tr><td>anchor-skew</td><td>Zeit des Tokens passt nicht zur Geräteuhr</td></tr>
+      <tr><td>too-many-anchors</td><td>400 externe Zeitstempel</td></tr>
+      <tr><td>bad-relay</td><td>Adresse nicht unter den beim Bauen erlaubten</td></tr>
       <tr><td>bad-retention</td><td>Aufbewahrung außerhalb 1–120 Monate</td></tr>
       <tr><td>bad-origin</td><td>Unbekannte Herkunft</td></tr>
       <tr><td>already-running</td><td>Es läuft schon ein Tag</td></tr>
@@ -202,7 +246,15 @@
       <tr><td>retentionMonthsMin</td><td>1</td><td>Kleinste Aufbewahrung</td></tr>
       <tr><td>retentionMonthsMax</td><td>120</td><td>Größte Aufbewahrung</td></tr>
       <tr><td>maxDays</td><td>4000</td><td>Tage im Buch</td></tr>
-      <tr><td>maxBackupChars</td><td>5000000</td><td>Größe einer Sicherungsdatei beim Einlesen</td></tr>
+      <tr><td>maxBackupChars</td><td>12000000</td><td>Größe einer Sicherungsdatei beim Einlesen</td></tr>
+      <tr><td>maxStamps</td><td>6000</td><td>Länge der Stempelkette; voll = Ablehnung (nie stilles Verwerfen). Begründung: Der Tresor liegt im Browserspeicher (etwa 5 MB); bei etwa 6 Stempeln je Tag sind das rund drei Jahre</td></tr>
+      <tr><td>stampsCompactAt</td><td>4500</td><td>Ab dieser Länge kürzt das Löschen die Kette um abgedeckte, gelöschte Monate</td></tr>
+      <tr><td>maxAnchors</td><td>400</td><td>Externe Zeitstempel im Buch</td></tr>
+      <tr><td>maxAnchorTokenChars</td><td>16384</td><td>Größe eines Tokens (Base64)</td></tr>
+      <tr><td>maxTsaIdChars</td><td>100</td><td>Name des Dienstes</td></tr>
+      <tr><td>maxRelayChars</td><td>200</td><td>Adresse des Weiterreichers</td></tr>
+      <tr><td>anchorMaxAgeHours</td><td>24</td><td>Spätestens nach so vielen Stunden soll ein Stempel durch einen Anker abgedeckt sein (sonst overdue)</td></tr>
+      <tr><td>anchorSkewMinutes</td><td>15</td><td>Wie weit die Zeit eines Tokens von der Geräteuhr abweichen darf</td></tr>
       <tr><td>maxChanges</td><td>2000</td><td>Einträge im Änderungsprotokoll</td></tr>
       <tr><td>maxReasonChars</td><td>200</td><td>Begründung einer Änderung</td></tr>
     </table>

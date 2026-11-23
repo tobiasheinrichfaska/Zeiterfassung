@@ -2,12 +2,18 @@ import {
   BOOK_FORMAT,
   BOOK_VERSION,
   CHANGE_KINDS,
+  STAMP_KINDS,
   LIMITS,
   fail,
   ok,
   type Break,
   type ChangeEntry,
+  type Anchor,
   type ChangeKind,
+  type Reason,
+  type Stamp,
+  type StampBase,
+  type StampKind,
   type DaySnapshot,
   type Result,
   type TimeBook,
@@ -15,6 +21,8 @@ import {
 } from './model.ts';
 import { checkSettings, checkWorkday, textOk } from './validate.ts';
 import { isDateKey, isMonthKey } from './time.ts';
+import { isHash } from './sha256.ts';
+import { checkChain } from './stamps.ts';
 
 /** The older format version that is still read (and migrated without loss). */
 const OLDEST_READABLE_VERSION = 1;
@@ -106,11 +114,74 @@ function readChange(v: unknown): ChangeEntry | null {
   };
 }
 
+const STAMP_KEYS = ['n', 'at', 'kind', 'date', 'contentHash', 'prev', 'skew', 'hash'];
+
+function readStamp(v: unknown): Stamp | null {
+  if (!isObject(v) || !hasOnly(v, STAMP_KEYS)) return null;
+  if (!Number.isInteger(v.n) || typeof v.at !== 'string' || typeof v.skew !== 'boolean')
+    return null;
+  if (!STAMP_KINDS.includes(v.kind as StampKind) || !isDateKey(v.date)) return null;
+  if (!isHash(v.contentHash) || !isHash(v.prev) || !isHash(v.hash)) return null;
+  return v as unknown as Stamp;
+}
+
+const ANCHOR_KEYS = ['tsaId', 'genTime', 'coveredN', 'headHash', 'token'];
+
+function readAnchor(v: unknown): Anchor | null {
+  if (!isObject(v) || !hasOnly(v, ANCHOR_KEYS)) return null;
+  if (typeof v.tsaId !== 'string' || typeof v.genTime !== 'string') return null;
+  if (!Number.isInteger(v.coveredN) || !isHash(v.headHash) || typeof v.token !== 'string') {
+    return null;
+  }
+  return v as unknown as Anchor;
+}
+
+/** The chain, its base and the anchors, read strictly; returns a reason when anything is wrong. */
+function readChain(
+  raw: Record<string, unknown>,
+): { stamps: Stamp[]; stampBase: StampBase | null; anchors: Anchor[] } | Reason {
+  const { stamps, stampBase, anchors } = raw;
+  if (!Array.isArray(stamps) || !Array.isArray(anchors)) return 'bad-backup';
+  if (stamps.length > LIMITS.maxStamps) return 'too-many-stamps';
+  if (anchors.length > LIMITS.maxAnchors) return 'too-many-anchors';
+  let base: StampBase | null = null;
+  if (stampBase !== null) {
+    if (!isObject(stampBase) || !hasOnly(stampBase, ['n', 'hash', 'at'])) return 'bad-backup';
+    if (!Number.isInteger(stampBase.n) || (stampBase.n as number) < 1) return 'bad-backup';
+    if (!isHash(stampBase.hash) || typeof stampBase.at !== 'string') return 'bad-backup';
+    if (Number.isNaN(Date.parse(stampBase.at))) return 'bad-backup';
+    base = { n: stampBase.n as number, hash: stampBase.hash, at: stampBase.at };
+  }
+  const readStamps: Stamp[] = [];
+  for (const s of stamps) {
+    const stamp = readStamp(s);
+    if (!stamp) return 'bad-backup';
+    readStamps.push(stamp);
+  }
+  const broken = checkChain(readStamps, base);
+  if (broken) return broken;
+  const readAnchors: Anchor[] = [];
+  let last = base?.n ?? 0;
+  for (const a of anchors) {
+    const anchor = readAnchor(a);
+    if (!anchor) return 'bad-backup';
+    // the anchor must cover a stamp of this chain (or the base) with the same hash, in rising order
+    const hashAt =
+      anchor.coveredN === base?.n
+        ? base.hash
+        : readStamps.find((s) => s.n === anchor.coveredN)?.hash;
+    if (anchor.coveredN <= last || hashAt !== anchor.headHash) return 'bad-backup';
+    last = anchor.coveredN;
+    readAnchors.push(anchor);
+  }
+  return { stamps: readStamps, stampBase: base, anchors: readAnchors };
+}
+
 /**
- * Reads a backup strictly: an unknown format or version, an unknown member, a day or a log entry
- * that fails the rules, or two open days is a refusal — nothing is half-taken. Version 1 (no change
- * log) is read and becomes version 2 with an empty log; nothing else changes. The caller decides
- * whether to replace the current book (the UI asks first).
+ * Reads a backup strictly: an unknown format or version, an unknown member, a day, a log entry, a stamp
+ * or an anchor that fails the rules, a broken stamp chain, or two open days is a refusal — nothing is
+ * half-taken. Versions 1 and 2 are read and become version 3 (an empty chain and no anchors, the relay
+ * off); nothing else changes. The caller decides whether to replace the current book (the UI asks).
  */
 export function importBackup(text: string): Result<TimeBook> {
   if (typeof text !== 'string' || text.length > LIMITS.maxBackupChars) return fail('bad-backup');
@@ -123,16 +194,18 @@ export function importBackup(text: string): Result<TimeBook> {
   if (!isObject(raw)) return fail('bad-backup');
   if (raw.format !== BOOK_FORMAT) return fail('bad-backup');
   const version = raw.version;
-  if (version !== BOOK_VERSION && version !== OLDEST_READABLE_VERSION)
+  if (typeof version !== 'number' || version < OLDEST_READABLE_VERSION || version > BOOK_VERSION) {
     return fail('unknown-version');
+  }
+  if (!Number.isInteger(version)) return fail('unknown-version');
   const keys = ['format', 'version', 'settings', 'days', 'exportedMonths'];
-  if (!hasOnly(raw, version === BOOK_VERSION ? [...keys, 'changes'] : keys)) {
-    return fail('bad-backup');
-  }
+  if (version >= 2) keys.push('changes');
+  if (version >= 3) keys.push('stamps', 'stampBase', 'anchors');
+  if (!hasOnly(raw, keys)) return fail('bad-backup');
   const { settings, days, exportedMonths } = raw;
-  if (!isObject(settings) || !hasOnly(settings, ['employeeLabel', 'retentionMonths'])) {
-    return fail('bad-backup');
-  }
+  const settingKeys = ['employeeLabel', 'retentionMonths'];
+  if (version >= 3) settingKeys.push('timestampRelay');
+  if (!isObject(settings) || !hasOnly(settings, settingKeys)) return fail('bad-backup');
   if (!isObject(days) || !isObject(exportedMonths)) return fail('bad-backup');
   const book: TimeBook = {
     format: BOOK_FORMAT,
@@ -140,10 +213,14 @@ export function importBackup(text: string): Result<TimeBook> {
     settings: {
       employeeLabel: settings.employeeLabel as string,
       retentionMonths: settings.retentionMonths as number,
+      timestampRelay: version >= 3 ? (settings.timestampRelay as string) : '',
     },
     days: {},
     exportedMonths: {},
     changes: [],
+    stamps: [],
+    stampBase: null,
+    anchors: [],
   };
   if (checkSettings(book.settings)) return fail('bad-backup');
   const dayKeys = Object.keys(days);
@@ -162,7 +239,7 @@ export function importBackup(text: string): Result<TimeBook> {
     }
     book.exportedMonths[month] = when;
   }
-  if (version === BOOK_VERSION) {
+  if (version >= 2) {
     const changes = raw.changes;
     if (!Array.isArray(changes)) return fail('bad-backup');
     if (changes.length > LIMITS.maxChanges) return fail('too-many-changes');
@@ -171,6 +248,13 @@ export function importBackup(text: string): Result<TimeBook> {
       if (!entry) return fail('bad-backup');
       book.changes.push(entry);
     }
+  }
+  if (version >= 3) {
+    const chain = readChain(raw);
+    if (typeof chain === 'string') return fail(chain);
+    book.stamps = chain.stamps;
+    book.stampBase = chain.stampBase;
+    book.anchors = chain.anchors;
   }
   return ok(book);
 }

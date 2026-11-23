@@ -1,4 +1,6 @@
 import type { Reason } from './model.ts';
+import type { AnchorStatus } from './anchors.ts';
+import { formatIsoDateTime } from './time.ts';
 
 /** German message for every error code (product text; the logic layer only returns codes). */
 export const REASON_TEXTS: Record<Reason, string> = {
@@ -22,6 +24,15 @@ export const REASON_TEXTS: Record<Reason, string> = {
   'password-required': 'Diese Sicherung ist verschlüsselt. Bitte das Passwort eingeben.',
   'weak-password': 'Das Passwort braucht 8 bis 256 Zeichen.',
   'passwords-differ': 'Die beiden Passwörter sind verschieden.',
+  'chain-broken':
+    'Die Stempelkette ist unterbrochen oder verändert (Lücke, falsche Prüfsumme oder falscher Vorgänger). Die Daten wurden nicht angenommen.',
+  'too-many-stamps':
+    'Die Stempelkette ist voll (6000 Stempel). Bitte alte, exportierte und extern gestempelte Monate löschen.',
+  'bad-anchor': 'Der externe Zeitstempel ist ungültig oder passt nicht zur Stempelkette.',
+  'anchor-skew':
+    'Die Zeit des externen Zeitstempels passt nicht zur Geräteuhr. Bitte die Uhr des Geräts prüfen.',
+  'too-many-anchors': 'Es sind höchstens 400 externe Zeitstempel möglich.',
+  'bad-relay': 'Diese Adresse des Weiterreichers ist in dieser Fassung nicht erlaubt.',
   'bad-retention': 'Die Aufbewahrung muss zwischen 1 und 120 Monaten liegen.',
   'bad-origin': 'Die Herkunft des Eintrags ist unbekannt.',
   'already-running': 'Es läuft schon ein Arbeitstag. Bitte zuerst „Gehen“ stempeln.',
@@ -40,3 +51,27 @@ export const REASON_TEXTS: Record<Reason, string> = {
 
 /** Text for a code; falls back to the code itself so an error is never silent. */
 export const reasonText = (reason: Reason): string => REASON_TEXTS[reason] ?? reason;
+
+/** The status of the external time stamps in one or two German sentences. */
+export function anchorStatusText(s: AnchorStatus): string {
+  const oldest = s.oldestUnanchoredAt ? formatIsoDateTime(s.oldestUnanchoredAt) : '';
+  switch (s.state) {
+    case 'off':
+      return (
+        'Kein externer Zeitstempeldienst eingerichtet.' +
+        (s.unanchored > 0
+          ? ` Die ${s.unanchored} internen Stempel sind nur durch die Geräteuhr datiert.`
+          : '')
+      );
+    case 'nothing':
+      return 'Es gibt noch keine Stempel.';
+    case 'ok':
+      return `Alle ${s.headN} Stempel sind durch externe Zeitstempel abgedeckt${
+        s.lastAnchorGenTime ? ` (letzter: ${formatIsoDateTime(s.lastAnchorGenTime)})` : ''
+      }.`;
+    case 'due':
+      return `${s.unanchored} Stempel warten auf den externen Zeitstempel (der älteste von ${oldest}).`;
+    case 'overdue':
+      return `Überfällig: ${s.unanchored} Stempel sind älter als 24 Stunden und noch nicht extern gestempelt (der älteste von ${oldest}).`;
+  }
+}

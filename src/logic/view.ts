@@ -160,9 +160,20 @@ export function parseDayForm(f: DayFormFields): Result<WorkdayInput> {
 // ---- settings form -------------------------------------------------------------------------------
 
 /** Reads the settings fields; the value rules (1 to 120 months, label length) are `checkSettings`. */
-export function parseSettingsForm(label: string, retention: string): Result<Settings> {
+export function parseSettingsForm(
+  label: string,
+  retention: string,
+  relay: string,
+  allowedRelays: readonly string[],
+): Result<Settings> {
   if (!/^\d{1,4}$/.test(retention)) return fail('bad-retention');
-  const settings: Settings = { employeeLabel: label.trim(), retentionMonths: Number(retention) };
+  // the address is a choice among those this build allows (the policy of the page lists only these)
+  if (relay !== '' && !allowedRelays.includes(relay)) return fail('bad-relay');
+  const settings: Settings = {
+    employeeLabel: label.trim(),
+    retentionMonths: Number(retention),
+    timestampRelay: relay,
+  };
   const reason = checkSettings(settings);
   return reason ? fail(reason) : ok(settings);
 }

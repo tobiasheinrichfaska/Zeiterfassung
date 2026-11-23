@@ -18,7 +18,7 @@ export const BACKUP_CRYPTO = {
   minPasswordChars: 8,
   maxPasswordChars: 256,
   /** Largest encrypted file read (the plain limit plus Base64 and header). */
-  maxChars: 8_000_000,
+  maxChars: 18_000_000,
 } as const;
 
 const HEADER_KEYS = ['format', 'version', 'kdf', 'iterations', 'salt', 'cipher', 'iv', 'data'];

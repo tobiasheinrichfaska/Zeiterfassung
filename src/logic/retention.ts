@@ -1,5 +1,6 @@
 import { fail, ok, type DateKey, type MonthKey, type Result, type TimeBook } from './model.ts';
 import { isMonthKey, monthIndex, monthOf } from './time.ts';
+import { compactStamps } from './stamps.ts';
 
 /** Records that a month's summary was exported (the precondition for purging it). */
 export function markExported(book: TimeBook, month: MonthKey, whenIso: string): Result<TimeBook> {
@@ -18,7 +19,8 @@ function exportCovers(book: TimeBook, month: MonthKey): boolean {
   const later = (iso: string) => Date.parse(iso) > at;
   return !(
     Object.values(book.days).some((d) => monthOf(d.date) === month && later(d.recordedAt)) ||
-    book.changes.some((c) => monthOf(c.date) === month && later(c.at))
+    book.changes.some((c) => monthOf(c.date) === month && later(c.at)) ||
+    book.stamps.some((s) => monthOf(s.date) === month && later(s.at))
   );
 }
 
@@ -60,5 +62,6 @@ export function purgeExpired(book: TimeBook, today: DateKey): TimeBook {
     Object.entries(book.days).filter(([date, d]) => !gone.has(monthOf(date)) || d.endMin === null),
   );
   const changes = book.changes.filter((c) => !gone.has(monthOf(c.date)) || c.date in days);
-  return { ...book, days, changes };
+  // the stamp chain stays (hashes only, no content); it is shortened only when it grows long
+  return compactStamps({ ...book, days, changes });
 }

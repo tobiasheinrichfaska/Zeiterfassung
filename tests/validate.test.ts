@@ -95,13 +95,21 @@ describe('checkWorkday', () => {
 
 describe('checkSettings', () => {
   it('checks label and retention at the boundaries', () => {
-    expect(checkSettings({ employeeLabel: '', retentionMonths: 1 })).toBeNull();
-    expect(checkSettings({ employeeLabel: '', retentionMonths: 120 })).toBeNull();
-    expect(checkSettings({ employeeLabel: '', retentionMonths: 0 })).toBe('bad-retention');
-    expect(checkSettings({ employeeLabel: '', retentionMonths: 121 })).toBe('bad-retention');
-    expect(checkSettings({ employeeLabel: '', retentionMonths: 2.5 })).toBe('bad-retention');
-    expect(checkSettings({ employeeLabel: 'x'.repeat(101), retentionMonths: 24 })).toBe(
-      'bad-label',
+    expect(checkSettings({ employeeLabel: '', retentionMonths: 1, timestampRelay: '' })).toBeNull();
+    expect(
+      checkSettings({ employeeLabel: '', retentionMonths: 120, timestampRelay: '' }),
+    ).toBeNull();
+    expect(checkSettings({ employeeLabel: '', retentionMonths: 0, timestampRelay: '' })).toBe(
+      'bad-retention',
     );
+    expect(checkSettings({ employeeLabel: '', retentionMonths: 121, timestampRelay: '' })).toBe(
+      'bad-retention',
+    );
+    expect(checkSettings({ employeeLabel: '', retentionMonths: 2.5, timestampRelay: '' })).toBe(
+      'bad-retention',
+    );
+    expect(
+      checkSettings({ employeeLabel: 'x'.repeat(101), retentionMonths: 24, timestampRelay: '' }),
+    ).toBe('bad-label');
   });
 });

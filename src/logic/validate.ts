@@ -88,6 +88,21 @@ export function checkWorkday(day: Workday): Reason | null {
   return null;
 }
 
+/** An empty relay address (off), or an https address (http only for the own machine), one plain line. */
+export function relayOk(value: unknown): value is string {
+  if (value === '') return true;
+  if (!textOk(value, LIMITS.maxRelayChars) || /\s/.test(value)) return false;
+  try {
+    const url = new URL(value);
+    const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+    return (
+      (url.protocol === 'https:' || (url.protocol === 'http:' && local)) && url.username === ''
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function checkSettings(s: Settings): Reason | null {
   if (!textOk(s.employeeLabel, LIMITS.maxLabelChars)) return 'bad-label';
   if (
@@ -97,5 +112,6 @@ export function checkSettings(s: Settings): Reason | null {
   ) {
     return 'bad-retention';
   }
+  if (!relayOk(s.timestampRelay)) return 'bad-relay';
   return null;
 }
