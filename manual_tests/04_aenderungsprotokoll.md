@@ -64,3 +64,31 @@ werden aber protokolliert. Heutige Tage und das Stempeln in Echtzeit werden nich
 - Nach Schritt 1 ist der Monat samt seinen Protokolleinträgen weg.
 - Nach Schritt 2 steht der Monat unter „Fällig, aber nicht exportiert“ mit dem Hinweis, dass er nach dem Export verändert wurde; er wird nicht gelöscht. Erst ein neuer Export gibt ihn frei.
 - Nicht offensichtlich: Das Protokoll ist nicht manipulationssicher (keine Kette, keine Signatur, Geräteuhr).
+
+## MT-20: Seite wird gemerkt
+
+**Schritte**
+
+1. Zur Seite „Sicherung“ wechseln, die Anwendung schließen und wieder öffnen.
+
+**Erwartet**
+
+- Die Räder öffnen wieder auf „Sicherung“ (mit Passwort-Sperre erst nach dem Entsperren).
+- Im privaten Fenster ohne Speicher starten die Räder auf der ersten Seite, ohne Fehlermeldung.
+
+## MT-21: Angefangenes Formular geht nicht verloren
+
+**Schritte**
+
+1. Unter „Tag eingeben“ ein Datum, „Kommen“ und eine Notiz eintragen, aber **nicht** speichern.
+2. Zu einer anderen Seite wischen und zurück.
+3. Die Anwendung schließen, neu öffnen und „Tag eingeben“ öffnen.
+4. „Entwurf verwerfen“ drücken. Dann noch einmal etwas eintragen und „Speichern“ drücken.
+5. Im Bereich „Monat“ bei einem Tag „Bearbeiten“, die Notiz ändern, zur Seite „Stempeln“ wischen und zurück.
+
+**Erwartet**
+
+- Nach Schritt 2 und 3 stehen die Eingaben noch da, dazu der Hinweis „Ein angefangener Entwurf wurde wiederhergestellt.“
+- Nach „Entwurf verwerfen“ ist das Formular leer; nach „Speichern“ erscheint der Entwurf nicht mehr.
+- Nach Schritt 5 öffnet der Monat wieder auf dem Tag mit der geänderten Notiz (noch nicht gespeichert).
+- Der Entwurf liegt verschlüsselt im Tresor (nicht lesbar im Browser-Speicher).

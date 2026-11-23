@@ -11,6 +11,7 @@ import {
 } from '../logic/index.ts';
 import { useBookApi } from './bookContext.ts';
 import { DayForm } from './DayForm.tsx';
+import { useDrafts } from './draftContext.ts';
 import { useAskReason } from './promptContext.ts';
 import { styles } from './styles.ts';
 
@@ -18,8 +19,8 @@ import { styles } from './styles.ts';
 export function FormPage() {
   const { book, apply } = useBookApi();
   const askReason = useAskReason();
+  const { drafts, setTagDraft } = useDrafts();
   const [saved, setSaved] = useState<string | undefined>();
-  const [version, setVersion] = useState(0);
   const running = openDay(book);
   const today = clockFromDate(new Date()).date;
   const initial = running ? dayToForm(running) : emptyForm(today);
@@ -41,7 +42,7 @@ export function FormPage() {
     );
     if (ok) {
       setSaved(`Gespeichert: ${input.date}`);
-      setVersion((v) => v + 1);
+      setTagDraft(undefined);
     }
     return ok;
   };
@@ -53,7 +54,20 @@ export function FormPage() {
         <p>Der Tag vom {running.date} läuft noch. Hier lässt er sich beenden oder korrigieren.</p>
       )}
       {saved && <p role="status">{saved}</p>}
-      <DayForm key={version} initial={initial} saveLabel="Speichern" onSave={save} />
+      {drafts.tag && (
+        <p role="note">
+          Ein angefangener Entwurf wurde wiederhergestellt.{' '}
+          <button type="button" style={styles.button} onClick={() => setTagDraft(undefined)}>
+            Entwurf verwerfen
+          </button>
+        </p>
+      )}
+      <DayForm
+        value={drafts.tag ?? initial}
+        onChange={setTagDraft}
+        saveLabel="Speichern"
+        onSave={save}
+      />
     </div>
   );
 }

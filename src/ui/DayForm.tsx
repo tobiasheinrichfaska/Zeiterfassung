@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   emptyBreak,
   parseDayForm,
@@ -11,7 +10,9 @@ import { useBookApi } from './bookContext.ts';
 import { styles } from './styles.ts';
 
 interface Props {
-  initial: DayFormFields;
+  /** The fields; the page keeps them (so an unsaved form can outlive this component). */
+  value: DayFormFields;
+  onChange: (fields: DayFormFields) => void;
   saveLabel: string;
   /** Takes the day (the page decides what happens next; it may ask first). */
   onSave: (input: WorkdayInput) => unknown;
@@ -19,9 +20,10 @@ interface Props {
 }
 
 /** The entry form of one working day. Reads fields, shows what cannot be read; the rules are the logic's. */
-export function DayForm({ initial, saveLabel, onSave, onCancel }: Props) {
+export function DayForm({ value, onChange, saveLabel, onSave, onCancel }: Props) {
   const { showError } = useBookApi();
-  const [f, setF] = useState<DayFormFields>(initial);
+  const f = value;
+  const setF = (update: (old: DayFormFields) => DayFormFields) => onChange(update(value));
   const set = <K extends keyof DayFormFields>(key: K, value: DayFormFields[K]) =>
     setF((old) => ({ ...old, [key]: value }));
   const setBreak = (i: number, change: Partial<BreakFields>) =>

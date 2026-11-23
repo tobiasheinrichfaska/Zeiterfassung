@@ -1,4 +1,4 @@
-import { areaNode, distributor, type PageTable, type WheelTexts } from 'rad-navi';
+import { areaNode, distributor, pathTo, type PageTable, type WheelTexts } from 'rad-navi';
 
 /** The pages of the app by page id (names are the German labels on the wheels). */
 export const PAGES: PageTable = {
@@ -30,3 +30,6 @@ export const WHEEL_TEXTS: Partial<WheelTexts> = {
   placeholder: (name) => `Die Seite „${name}“ folgt.`,
   backButton: (name) => `↩ Zurück zu ${name}`,
 };
+
+/** A saved node id counts only when it is a page of the tree (an old or hand-made value is ignored). */
+export const isPageNode = (node: string): boolean => pathTo(TREE, node).at(-1)?.page !== undefined;

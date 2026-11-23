@@ -25,6 +25,7 @@ import {
 import { canShareFile, downloadFile, shareFile } from '../io/files.ts';
 import { useBookApi } from './bookContext.ts';
 import { DayForm } from './DayForm.tsx';
+import { useDrafts } from './draftContext.ts';
 import { useAskReason } from './promptContext.ts';
 import { pdfAssets } from './pdfAssets.ts';
 import { styles } from './styles.ts';
@@ -32,8 +33,15 @@ import { styles } from './styles.ts';
 export function MonthPage() {
   const { book, apply, showError } = useBookApi();
   const askReason = useAskReason();
-  const [month, setMonth] = useState(() => monthOf(clockFromDate(new Date()).date));
-  const [editing, setEditing] = useState<string | undefined>();
+  const { drafts, setMonthDraft } = useDrafts();
+  // a correction that was started before the page was left opens again where it was
+  const resumed = drafts.monat && drafts.monat.date in book.days ? drafts.monat.date : undefined;
+  const [month, setMonth] = useState(() => monthOf(resumed ?? clockFromDate(new Date()).date));
+  const [editing, setEditingState] = useState<string | undefined>(resumed);
+  const setEditing = (date: string | undefined) => {
+    setEditingState(date);
+    if (date === undefined) setMonthDraft(undefined);
+  };
   const [info, setInfo] = useState<string | undefined>();
   const summary = monthSummary(book, month);
   const exportedAt = book.exportedMonths[month];
@@ -179,7 +187,10 @@ export function MonthPage() {
           <h3>Tag bearbeiten</h3>
           <DayForm
             key={editingDay.date}
-            initial={dayToForm(editingDay)}
+            value={
+              drafts.monat?.date === editingDay.date ? drafts.monat.fields : dayToForm(editingDay)
+            }
+            onChange={(fields) => setMonthDraft({ date: editingDay.date, fields })}
             saveLabel="Änderung speichern"
             onSave={save}
             onCancel={() => setEditing(undefined)}

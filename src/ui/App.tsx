@@ -1,11 +1,12 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { WheelNav } from 'rad-navi';
 import { useBookApi } from './bookContext.ts';
 import { BackupPage } from './BackupPage.tsx';
 import { FormPage } from './FormPage.tsx';
 import { MonthPage } from './MonthPage.tsx';
 import { SettingsPage } from './SettingsPage.tsx';
-import { JUMP_NODE, PAGES, TREE, WHEEL_TEXTS } from './navigation.ts';
+import { createLastPageStore } from '../io/lastPage.ts';
+import { JUMP_NODE, PAGES, TREE, WHEEL_TEXTS, isPageNode } from './navigation.ts';
 import { StampPage } from './StampPage.tsx';
 import { styles } from './styles.ts';
 
@@ -18,7 +19,10 @@ const VIEWS: Record<string, () => ReactNode> = {
   sicherung: () => <BackupPage />,
 };
 
+const lastPage = createLastPageStore(() => localStorage, isPageNode);
+
 export function App() {
+  const [start] = useState(() => lastPage.read());
   const { error, dismissError } = useBookApi();
   return (
     <>
@@ -46,6 +50,8 @@ export function App() {
         tree={TREE}
         pages={PAGES}
         pageFor={(page) => VIEWS[page]?.()}
+        startNode={start}
+        onOpenChange={lastPage.write}
         jumpTarget={() => JUMP_NODE}
         texts={WHEEL_TEXTS}
       />

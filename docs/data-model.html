@@ -42,6 +42,13 @@
       <tr><td>changes</td><td>ChangeEntry[]</td><td>ja (ab Version 2)</td><td>Änderungsprotokoll: jede Änderung an einem abgelaufenen Tag (Datum vor dem heutigen lokalen Datum), älteste zuerst, höchstens 2000</td></tr>
     </table>
 
+    <h2>1a Weitere gespeicherte Dinge (nicht Teil des Buchs)</h2>
+    <table>
+      <tr><th>Wo</th><th>Was</th><th>Bedeutung</th></tr>
+      <tr><td>Tresor-Fach <code>draft</code> (verschlüsselt)</td><td>Drafts: { version: 1, tag?: Formularfelder, monat?: { date, fields } }</td><td>Angefangene, nicht gespeicherte Eingaben (Formular „Tag eingeben“, Korrektur im Monat). Strenger Leser: was nicht passt, wird verworfen (die gespeicherten Zeiten sind nie betroffen). Wird beim Speichern und Verwerfen gelöscht</td></tr>
+      <tr><td>Browser-Speicher (unverschlüsselt), Schlüssel <code>ze-seite</code></td><td>Knoten-ID der zuletzt geöffneten Seite</td><td>Nur die Seiten-ID, keine Daten; nur gültige Seiten des Navigationsbaums werden gelesen oder geschrieben; nie ein Fehler, wenn der Speicher gesperrt ist</td></tr>
+    </table>
+
     <h2>2 Entitäten</h2>
     <h3>Workday (ein Arbeitstag)</h3>
     <p class="note">Zeiten sind Minuten seit der lokalen Mitternacht des Datums (Wanduhr, keine Zeitzone). Eine Schicht über Mitternacht hat <code>endMin</code> über 1440.</p>
@@ -138,6 +145,7 @@
       <tr><td>describeBook / replaceQuestion / pdfFileName / backupFileName</td><td>Hilfen</td><td>Beschreibung eines Buchs, Rückfrage vor dem Einspielen einer Sicherung, Dateinamen</td></tr>
       <tr><td>changeEntry / addChanges / changesOfMonth / changedDates</td><td>…</td><td>Protokolleintrag bilden (nur für abgelaufene Tage mit geänderten Zeiten), anfügen (voll = <code>too-many-changes</code>, nie stilles Verwerfen), Einträge und Daten eines Monats</td></tr>
       <tr><td>changeText / describeSnapshot / willBeLogged</td><td>(entry) → ChangeText</td><td>Deutsche Texte für Monatsansicht und Bericht; ob eine Änderung protokolliert wird (für die Rückfrage)</td></tr>
+      <tr><td>withDraft / parseDrafts / serializeDrafts / readFormFields</td><td>Hilfen</td><td>Entwürfe setzen und entfernen, streng lesen und schreiben</td></tr>
       <tr><td>sealBackup / openBackup / readBackupFile / isEncryptedBackup</td><td>(plain, password, random, iterations?) → Promise&lt;Result&lt;string&gt;&gt; …</td><td>Verschlüsselte Sicherung: PBKDF2-SHA-256 (Runden im Kopf, 600000 für neue Dateien) → AES-256-GCM, der Kopf (Format, Version, Verfahren, Runden, Salz, Nonce) ist als authentifizierte Zusatzdaten gebunden. Streng gelesen; falsches Passwort und veränderte Datei sind nicht unterscheidbar (<code>wrong-password</code>). <code>readBackupFile</code> liest beide Formen (verschlüsselt braucht das Passwort: <code>password-required</code>)</td></tr>
       <tr><td>checkNewPassword</td><td>(password, repeated) → Reason | null</td><td>8 bis 256 Zeichen (Zeichen, nicht UTF-16-Einheiten), zwei gleiche Eingaben</td></tr>
       <tr><td>markExported</td><td>(book, month, whenIso) → Result&lt;TimeBook&gt;</td><td>Export eines Monats vermerken</td></tr>

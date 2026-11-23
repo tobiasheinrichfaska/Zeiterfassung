@@ -6,6 +6,7 @@ export * from './changes.ts';
 export * from './summary.ts';
 export * from './report.ts';
 export * from './backup.ts';
+export * from './draft.ts';
 export * from './backupCrypto.ts';
 export * from './retention.ts';
 export * from './store.ts';

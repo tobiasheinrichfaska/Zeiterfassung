@@ -1,10 +1,10 @@
 import { createVault, type VaultConfig, type VaultEnvironment } from 'local-vault';
-import { BOOK_SLOT } from '../logic/index.ts';
+import { BOOK_SLOT, DRAFT_SLOT } from '../logic/index.ts';
 
 /** The app's vault: prefix and slot are fixed for good (a changed prefix makes stored data unreadable). */
 export const vaultConfig: VaultConfig = {
   prefix: 'zeiterfassung',
-  slots: [BOOK_SLOT],
+  slots: [BOOK_SLOT, DRAFT_SLOT],
   texts: {
     title: 'Zeiterfassung',
     opening: 'Die Daten werden geöffnet …',
