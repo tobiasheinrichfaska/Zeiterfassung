@@ -100,6 +100,21 @@ export function setWorkday(book: TimeBook, input: WorkdayInput, nowIso: string):
   return withDay(book, { ...input, origin: 'manual', recordedAt: nowIso });
 }
 
+/**
+ * Corrects the day that stood at `oldDate`: replaces it by the input, and when the input has
+ * another date, the old date's entry is removed in the same step (nothing is half-done).
+ */
+export function moveWorkday(
+  book: TimeBook,
+  oldDate: DateKey,
+  input: WorkdayInput,
+  nowIso: string,
+): Result<TimeBook> {
+  if (!(oldDate in book.days)) return fail('no-such-day');
+  const without = oldDate === input.date ? ok(book) : removeWorkday(book, oldDate);
+  return without.ok ? setWorkday(without.value, input, nowIso) : without;
+}
+
 export function removeWorkday(book: TimeBook, date: DateKey): Result<TimeBook> {
   if (!(date in book.days)) return fail('no-such-day');
   const days = Object.fromEntries(Object.entries(book.days).filter(([key]) => key !== date));

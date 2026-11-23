@@ -76,3 +76,7 @@ export function parseClock(text: string): number | null {
   const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(text);
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
 }
+
+/** `2026-12-01T06:00:00.000Z` → `01.12.2026` (the date part as written, no time zone shift). */
+export const formatIsoDate = (iso: string): string =>
+  `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`;

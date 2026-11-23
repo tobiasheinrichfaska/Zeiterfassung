@@ -4,10 +4,12 @@ import {
   type Break,
   type MonthKey,
   type Result,
+  type Settings,
   type TimeBook,
   type Workday,
 } from './model.ts';
 import { openDay, type WorkdayInput } from './actions.ts';
+import { checkSettings } from './validate.ts';
 import type { DayRow } from './summary.ts';
 import {
   dayNumber,
@@ -141,6 +143,16 @@ export function parseDayForm(f: DayFormFields): Result<WorkdayInput> {
     breaks.push({ kind: 'span', fromMin, toMin });
   }
   return ok({ date: f.date, startMin, endMin, breaks, note: f.note.trim() });
+}
+
+// ---- settings form -------------------------------------------------------------------------------
+
+/** Reads the settings fields; the value rules (1 to 120 months, label length) are `checkSettings`. */
+export function parseSettingsForm(label: string, retention: string): Result<Settings> {
+  if (!/^\d{1,4}$/.test(retention)) return fail('bad-retention');
+  const settings: Settings = { employeeLabel: label.trim(), retentionMonths: Number(retention) };
+  const reason = checkSettings(settings);
+  return reason ? fail(reason) : ok(settings);
 }
 
 // ---- month view ----------------------------------------------------------------------------------

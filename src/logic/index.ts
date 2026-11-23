@@ -9,3 +9,5 @@ export * from './retention.ts';
 export * from './store.ts';
 export * from './texts.ts';
 export * from './view.ts';
+export * from './pdf.ts';
+export * from './files.ts';

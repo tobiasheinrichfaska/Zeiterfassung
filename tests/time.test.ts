@@ -3,6 +3,7 @@ import {
   dayDiff,
   formatClock,
   formatDuration,
+  formatIsoDate,
   isDateKey,
   isMonthKey,
   monthIndex,
@@ -54,5 +55,11 @@ describe('clock', () => {
     expect(parseClock('24:00')).toBeNull();
     expect(parseClock('8:05')).toBeNull();
     expect(parseClock('08:60')).toBeNull();
+  });
+});
+
+describe('formatIsoDate', () => {
+  it('writes the German date of an ISO time', () => {
+    expect(formatIsoDate('2026-12-01T06:00:00.000Z')).toBe('01.12.2026');
   });
 });
