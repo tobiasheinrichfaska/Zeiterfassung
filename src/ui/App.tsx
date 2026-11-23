@@ -8,7 +8,7 @@ import { SettingsPage } from './SettingsPage.tsx';
 import { createLastPageStore } from '../io/lastPage.ts';
 import { JUMP_NODE, PAGES, TREE, WHEEL_TEXTS, isPageNode } from './navigation.ts';
 import { StampPage } from './StampPage.tsx';
-import { styles } from './styles.ts';
+import { Z, styles } from './styles.ts';
 
 /** The page of each page id; a page id without an entry shows the wheel's placeholder. */
 const VIEWS: Record<string, () => ReactNode> = {
@@ -35,7 +35,8 @@ export function App() {
             top: 8,
             left: 8,
             right: 8,
-            zIndex: 1000,
+            zIndex: Z.banner,
+            font: 'inherit',
             background: 'Canvas',
             color: 'CanvasText',
           }}

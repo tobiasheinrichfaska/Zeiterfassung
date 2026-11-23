@@ -1,5 +1,11 @@
 import type { CSSProperties } from 'react';
 
+/**
+ * Stacking order of what floats above the page. The navigation wheel's frame (rad-navi) sits at 1000 and
+ * covers the page's top edge, so the error banner (which must stay readable and closable) lies above it.
+ */
+export const Z = { wheel: 1000, prompt: 2000, banner: 3000 } as const;
+
 /** Plain inline styles that inherit the colours of the surrounding sheet (light and dark). */
 export const styles = {
   page: { padding: '1rem', maxWidth: '40rem', margin: '0 auto', font: 'inherit' },
