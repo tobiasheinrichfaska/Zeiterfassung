@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zeiterfassung – Datenmodell</title>
+    <style>
+      :root { color-scheme: light dark; --bg:#fff; --fg:#1b1f23; --mut:#57606a; --line:#d0d7de; --acc:#0b5cad; --box:#f6f8fa; }
+      @media (prefers-color-scheme: dark) { :root { --bg:#0d1117; --fg:#e6edf3; --mut:#9da7b3; --line:#30363d; --acc:#58a6ff; --box:#161b22; } }
+      body { background:var(--bg); color:var(--fg); font:16px/1.5 system-ui,sans-serif; margin:0 auto; max-width:60rem; padding:1rem 1rem 4rem; }
+      h1,h2,h3 { line-height:1.25; } h2 { margin-top:2.2rem; border-bottom:1px solid var(--line); padding-bottom:.2rem; }
+      table { border-collapse:collapse; width:100%; margin:.6rem 0 1.2rem; font-size:.92rem; }
+      th,td { border:1px solid var(--line); padding:.3rem .5rem; text-align:left; vertical-align:top; }
+      th { background:var(--box); } code { background:var(--box); padding:0 .25rem; border-radius:3px; }
+      .note { color:var(--mut); } svg { max-width:100%; height:auto; }
+      svg text { fill:var(--fg); font:13px system-ui,sans-serif; } svg rect.e { fill:var(--box); stroke:var(--acc); stroke-width:1.5; }
+      svg line,svg path { stroke:var(--acc); stroke-width:1.5; fill:none; } svg .lab { fill:var(--mut); font-size:11px; }
+    </style>
+  </head>
+  <body>
+    <h1>Zeiterfassung – Datenmodell</h1>
+    <p class="note">
+      Quelle: <code>src/logic/</code> (Stand 2026-11-23, Version 1 des Buchformats). Bei jeder Änderung des Modells
+      in derselben Sitzung neu abgleichen; <code>tests/docs.test.ts</code> prüft, dass jeder Fehlercode und jede
+      Grenze hier steht. Die Datei ist eigenständig (kein Netz, kein Build).
+    </p>
+
+    <h2>1 Gespeicherte Form (Wurzel)</h2>
+    <p>
+      Ein einziges Objekt, <code>TimeBook</code>. Es wird (ab Stufe&nbsp;1b) verschlüsselt im Tresor
+      (<code>local-vault</code>) abgelegt und ist zugleich der Inhalt der Sicherungsdatei
+      (<code>exportBackup</code> / <code>importBackup</code>).
+    </p>
+    <table>
+      <tr><th>Feld</th><th>Typ</th><th>Pflicht</th><th>Bedeutung</th></tr>
+      <tr><td>format</td><td>"zeiterfassung-buch"</td><td>ja</td><td>Kennung des Formats</td></tr>
+      <tr><td>version</td><td>1</td><td>ja</td><td>Formatversion; eine andere Version wird beim Einlesen mit <code>unknown-version</code> abgelehnt</td></tr>
+      <tr><td>settings</td><td>Settings</td><td>ja</td><td>Einstellungen</td></tr>
+      <tr><td>days</td><td>Record&lt;DateKey, Workday&gt;</td><td>ja</td><td>Arbeitstage, Schlüssel = Datum <code>JJJJ-MM-TT</code>; höchstens ein Tag je Datum</td></tr>
+      <tr><td>exportedMonths</td><td>Record&lt;MonthKey, ISO-Zeit&gt;</td><td>ja</td><td>Monat → Zeitpunkt des Exports der Monatszusammenfassung; nur exportierte Monate dürfen nach Ablauf der Aufbewahrung gelöscht werden</td></tr>
+    </table>
+
+    <h2>2 Entitäten</h2>
+    <h3>Workday (ein Arbeitstag)</h3>
+    <p class="note">Zeiten sind Minuten seit der lokalen Mitternacht des Datums (Wanduhr, keine Zeitzone). Eine Schicht über Mitternacht hat <code>endMin</code> über 1440.</p>
+    <table>
+      <tr><th>Feld</th><th>Typ</th><th>Pflicht</th><th>Bedeutung</th></tr>
+      <tr><td>date</td><td>DateKey</td><td>ja</td><td>Tag des Kommens; muss dem Schlüssel in <code>days</code> entsprechen</td></tr>
+      <tr><td>startMin</td><td>ganze Zahl 0–1439</td><td>ja</td><td>Kommen</td></tr>
+      <tr><td>endMin</td><td>ganze Zahl oder null</td><td>ja</td><td>Gehen; null = Tag läuft noch (höchstens ein laufender Tag im Buch); größer als startMin, höchstens 2879, Schicht höchstens 1440 Minuten</td></tr>
+      <tr><td>breaks</td><td>Break[]</td><td>ja</td><td>Pausen, höchstens 20; Summe darf die Schicht nicht übersteigen</td></tr>
+      <tr><td>origin</td><td>"stamp" | "manual"</td><td>ja</td><td>Per Stechuhr-Knopf oder per Eingabeformular erfasst</td></tr>
+      <tr><td>note</td><td>Text, höchstens 200 Zeichen</td><td>ja (leer erlaubt)</td><td>Notiz, eine Zeile, keine Steuerzeichen</td></tr>
+      <tr><td>recordedAt</td><td>ISO-8601-Zeit</td><td>ja</td><td>Letzte Änderung nach der Geräteuhr; kein vertrauenswürdiger Zeitpunkt (dafür ist ein späteres Zeitstempel-Repo vorgesehen)</td></tr>
+    </table>
+    <h3>Break (eine Pause)</h3>
+    <table>
+      <tr><th>Variante</th><th>Felder</th><th>Bedeutung</th></tr>
+      <tr><td>length</td><td>minutes (ganze Zahl 1–720)</td><td>Nur eine Dauer (Eingabeformular)</td></tr>
+      <tr><td>span</td><td>fromMin, toMin (ganze Zahl oder null)</td><td>Zeitraum innerhalb des Tages (Stechuhr); toMin = null: Pause läuft, nur an einem laufenden Tag, höchstens eine; Zeiträume dürfen sich nicht überlappen und nicht vor dem Kommen oder nach dem Gehen liegen</td></tr>
+    </table>
+    <h3>Settings</h3>
+    <table>
+      <tr><th>Feld</th><th>Typ</th><th>Pflicht</th><th>Bedeutung</th></tr>
+      <tr><td>employeeLabel</td><td>Text, höchstens 100 Zeichen</td><td>ja (leer erlaubt)</td><td>Name oder Personalnummer auf der Monatszusammenfassung</td></tr>
+      <tr><td>retentionMonths</td><td>ganze Zahl 1–120</td><td>ja</td><td>Exportierte Monate werden so viele Monate nach ihrem Ende vom Gerät gelöscht</td></tr>
+    </table>
+
+    <h2>3 Beziehungen</h2>
+    <svg viewBox="0 0 640 200" role="img" aria-label="Entitäten und Beziehungen">
+      <rect class="e" x="10" y="70" width="120" height="50" rx="6" /><text x="40" y="100">TimeBook</text>
+      <rect class="e" x="260" y="10" width="120" height="50" rx="6" /><text x="290" y="40">Settings</text>
+      <rect class="e" x="260" y="130" width="120" height="50" rx="6" /><text x="290" y="160">Workday</text>
+      <rect class="e" x="510" y="130" width="120" height="50" rx="6" /><text x="545" y="160">Break</text>
+      <rect class="e" x="510" y="10" width="120" height="50" rx="6" /><text x="530" y="40">Monat (Export)</text>
+      <path d="M130 85 L260 38" /><text class="lab" x="170" y="52">settings 1:1</text>
+      <path d="M130 105 L260 150" /><text class="lab" x="150" y="140">days 1:0..n</text>
+      <path d="M380 155 L510 155" /><text class="lab" x="400" y="148">breaks 1:0..20</text>
+      <path d="M130 80 C300 -10 400 -10 510 30" /><text class="lab" x="400" y="14">exportedMonths 1:0..n</text>
+    </svg>
+    <table>
+      <tr><th>Von</th><th>Feld</th><th>Nach</th><th>Kardinalität</th></tr>
+      <tr><td>TimeBook</td><td>settings</td><td>Settings</td><td>1 : 1 (eingebettet)</td></tr>
+      <tr><td>TimeBook</td><td>days</td><td>Workday</td><td>1 : 0..4000, Schlüssel = Datum</td></tr>
+      <tr><td>Workday</td><td>breaks</td><td>Break</td><td>1 : 0..20 (eingebettet)</td></tr>
+      <tr><td>TimeBook</td><td>exportedMonths</td><td>Monat (aus den Tagen abgeleitet, keine eigene Entität)</td><td>1 : 0..n, Schlüssel = <code>JJJJ-MM</code></td></tr>
+    </table>
+
+    <h2>4 Methoden (reine Funktionen, <code>src/logic/</code>)</h2>
+    <p class="note">Jede Änderung liefert ein neues Buch oder einen Fehlercode (<code>Result</code>); das übergebene Buch wird nie verändert. Uhr und Zeitpunkt sind Parameter.</p>
+    <table>
+      <tr><th>Funktion</th><th>Signatur</th><th>Zweck</th></tr>
+      <tr><td>emptyBook</td><td>() → TimeBook</td><td>Leeres Buch mit den Werkseinstellungen</td></tr>
+      <tr><td>stampIn</td><td>(book, clock, nowIso) → Result&lt;TimeBook&gt;</td><td>Kommen stempeln; <code>already-running</code> oder <code>day-exists</code></td></tr>
+      <tr><td>breakStart</td><td>(book, clock, nowIso) → Result&lt;TimeBook&gt;</td><td>Pause beginnt</td></tr>
+      <tr><td>breakEnd</td><td>(book, clock, nowIso) → Result&lt;TimeBook&gt;</td><td>Pause endet</td></tr>
+      <tr><td>stampOut</td><td>(book, clock, nowIso) → Result&lt;TimeBook&gt;</td><td>Gehen stempeln; eine laufende Pause endet im selben Moment; Minuten nach Mitternacht zählen auf den Tag des Kommens</td></tr>
+      <tr><td>setWorkday</td><td>(book, WorkdayInput, nowIso) → Result&lt;TimeBook&gt;</td><td>Eingabeformular: Tag anlegen oder ersetzen (<code>origin</code> = manual)</td></tr>
+      <tr><td>removeWorkday</td><td>(book, date) → Result&lt;TimeBook&gt;</td><td>Tag löschen</td></tr>
+      <tr><td>updateSettings</td><td>(book, Settings) → Result&lt;TimeBook&gt;</td><td>Einstellungen ändern</td></tr>
+      <tr><td>openDay</td><td>(book) → Workday | undefined</td><td>Der laufende Tag</td></tr>
+      <tr><td>checkWorkday / checkSettings</td><td>(value) → Reason | null</td><td>Regeln aus Abschnitt 2 prüfen</td></tr>
+      <tr><td>workMinutes / totalBreakMinutes / breakMinutes</td><td>(day) → number | null</td><td>Arbeitszeit = Schicht minus Pausen; null bei laufendem Tag; eine laufende Pause zählt 0</td></tr>
+      <tr><td>monthSummary</td><td>(book, month) → MonthSummary</td><td>Zeilen, Summe der abgeschlossenen Tage, Zahl der laufenden Tage</td></tr>
+      <tr><td>monthToXml</td><td>(book, month, createdIso) → Result&lt;string&gt;</td><td>Maschinenlesbare Monatszusammenfassung (Namensraum <code>urn:zeiterfassung:monat:1</code>) für die digitale Personalakte</td></tr>
+      <tr><td>exportBackup / importBackup</td><td>(book) → string / (text) → Result&lt;TimeBook&gt;</td><td>Sicherungsdatei schreiben und streng lesen (unbekannte Felder, Regelverstöße, zwei laufende Tage: abgelehnt)</td></tr>
+      <tr><td>markExported</td><td>(book, month, whenIso) → Result&lt;TimeBook&gt;</td><td>Export eines Monats vermerken</td></tr>
+      <tr><td>retentionReport / purgeExpired</td><td>(book, today) → RetentionReport / TimeBook</td><td>Fällige Monate: löschbar (exportiert) oder gesperrt (nicht exportiert); Löschen lässt laufende Tage und nicht exportierte Monate unberührt</td></tr>
+      <tr><td>clockFromDate / parseClock / formatClock / formatDuration</td><td>Hilfen</td><td>Wanduhr aus einem Date, Uhrzeit lesen und anzeigen</td></tr>
+    </table>
+
+    <h2>5 Fehlercodes</h2>
+    <table>
+      <tr><th>Code</th><th>Bedeutung</th></tr>
+      <tr><td>bad-date</td><td>Kein gültiges Datum oder keine gültige Zeit</td></tr>
+      <tr><td>bad-month</td><td>Kein gültiger Monat</td></tr>
+      <tr><td>bad-minute</td><td>Minute außerhalb des erlaubten Bereichs</td></tr>
+      <tr><td>end-before-start</td><td>Gehen nicht nach Kommen</td></tr>
+      <tr><td>too-long</td><td>Schicht über 24 Stunden</td></tr>
+      <tr><td>bad-break</td><td>Pause ungültig (Länge, leerer Zeitraum, zweite laufende Pause)</td></tr>
+      <tr><td>too-many-breaks</td><td>Mehr als 20 Pausen</td></tr>
+      <tr><td>break-overlap</td><td>Pausen überlappen sich</td></tr>
+      <tr><td>break-outside</td><td>Pause außerhalb der Arbeitszeit</td></tr>
+      <tr><td>breaks-too-long</td><td>Pausen länger als die Schicht</td></tr>
+      <tr><td>open-break-on-closed-day</td><td>Laufende Pause an einem beendeten Tag</td></tr>
+      <tr><td>bad-note</td><td>Notiz zu lang oder mit Steuerzeichen</td></tr>
+      <tr><td>bad-label</td><td>Bezeichnung zu lang oder mit Steuerzeichen</td></tr>
+      <tr><td>bad-retention</td><td>Aufbewahrung außerhalb 1–120 Monate</td></tr>
+      <tr><td>bad-origin</td><td>Unbekannte Herkunft</td></tr>
+      <tr><td>already-running</td><td>Es läuft schon ein Tag</td></tr>
+      <tr><td>not-running</td><td>Es läuft kein Tag</td></tr>
+      <tr><td>break-running</td><td>Eine Pause läuft schon</td></tr>
+      <tr><td>no-break-running</td><td>Keine Pause läuft</td></tr>
+      <tr><td>day-exists</td><td>Für dieses Datum gibt es schon einen beendeten Tag</td></tr>
+      <tr><td>no-such-day</td><td>Kein Tag an diesem Datum</td></tr>
+      <tr><td>second-open-day</td><td>Zweiter laufender Tag</td></tr>
+      <tr><td>too-many-days</td><td>Mehr als 4000 Tage</td></tr>
+      <tr><td>bad-backup</td><td>Sicherungsdatei nicht lesbar oder nicht gültig</td></tr>
+      <tr><td>unknown-version</td><td>Andere Formatversion</td></tr>
+    </table>
+
+    <h2>6 Grenzen (<code>LIMITS</code>)</h2>
+    <table>
+      <tr><th>Name</th><th>Wert</th><th>Wirkung</th></tr>
+      <tr><td>minutesPerDay</td><td>1440</td><td>Minuten je Tag; Schicht höchstens so lang, Beginn davor</td></tr>
+      <tr><td>maxEndMin</td><td>2879</td><td>Spätestes Ende (Schicht über Mitternacht)</td></tr>
+      <tr><td>maxBreaksPerDay</td><td>20</td><td>Pausen je Tag</td></tr>
+      <tr><td>maxBreakLengthMinutes</td><td>720</td><td>Länge einer Pause als Dauer</td></tr>
+      <tr><td>maxNoteChars</td><td>200</td><td>Notiz</td></tr>
+      <tr><td>maxLabelChars</td><td>100</td><td>Bezeichnung</td></tr>
+      <tr><td>retentionMonthsMin</td><td>1</td><td>Kleinste Aufbewahrung</td></tr>
+      <tr><td>retentionMonthsMax</td><td>120</td><td>Größte Aufbewahrung</td></tr>
+      <tr><td>maxDays</td><td>4000</td><td>Tage im Buch</td></tr>
+      <tr><td>maxBackupChars</td><td>5000000</td><td>Größe einer Sicherungsdatei beim Einlesen</td></tr>
+    </table>
+
+    <h2>7 Werkseinstellungen</h2>
+    <p>
+      Keine eingebauten Daten. Nur die Voreinstellungen eines leeren Buchs (<code>DEFAULT_SETTINGS</code>):
+      <code>employeeLabel</code> leer, <code>retentionMonths</code> 24. Sie werden beim Anlegen eines leeren Buchs
+      gesetzt und können in den Einstellungen geändert werden. 24 Monate ist ein Startwert, keine rechtliche
+      Vorgabe; die richtige Frist ist mit der Personalverantwortung zu klären.
+    </p>
+  </body>
+</html>

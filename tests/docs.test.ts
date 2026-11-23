@@ -1,0 +1,47 @@
+import { readFileSync } from 'node:fs';
+import { DEFAULT_SETTINGS, LIMITS, type Reason } from '../src/logic/index.ts';
+
+const html = readFileSync(new URL('../docs/data-model.html', import.meta.url), 'utf8');
+
+// Every member of the union must be listed here, or this file does not compile.
+const REASONS: Record<Reason, true> = {
+  'bad-date': true,
+  'bad-month': true,
+  'bad-minute': true,
+  'end-before-start': true,
+  'too-long': true,
+  'bad-break': true,
+  'too-many-breaks': true,
+  'break-overlap': true,
+  'break-outside': true,
+  'breaks-too-long': true,
+  'open-break-on-closed-day': true,
+  'bad-note': true,
+  'bad-label': true,
+  'bad-retention': true,
+  'bad-origin': true,
+  'already-running': true,
+  'not-running': true,
+  'break-running': true,
+  'no-break-running': true,
+  'day-exists': true,
+  'no-such-day': true,
+  'second-open-day': true,
+  'too-many-days': true,
+  'bad-backup': true,
+  'unknown-version': true,
+};
+
+describe('docs/data-model.html against the code', () => {
+  it('lists every error code', () => {
+    for (const code of Object.keys(REASONS)) expect(html).toContain(`<td>${code}</td>`);
+  });
+  it('lists every limit with its value', () => {
+    for (const [name, value] of Object.entries(LIMITS)) {
+      expect(html).toMatch(new RegExp(`<td>${name}</td><td>${value}</td>`));
+    }
+  });
+  it('states the defaults', () => {
+    expect(html).toContain(`<code>retentionMonths</code> ${DEFAULT_SETTINGS.retentionMonths}`);
+  });
+});

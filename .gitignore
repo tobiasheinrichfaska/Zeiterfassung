@@ -1,0 +1,35 @@
+# Dependencies & build output
+node_modules/
+dist/
+coverage/
+
+# Project-bound scratch area (workspace rule: never use global temp)
+.tmp/
+
+# Real data never belongs here: backups and exports of recorded times, summaries
+*.zeiterfassung.json
+*.pdf
+*.xml
+!docs/**/*.xml
+
+# Private companion repo Zeiterfassung-privat, copied 1:1 over this checkout
+docs/privat/
+
+# Data files (workspace checklist private → public)
+*.xlsx
+*.csv
+*.db
+*.sqlite*
+*.log
+
+# Local environment / editor
+.env
+.env.*
+.vscode/
+.idea/
+*.wsb
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
