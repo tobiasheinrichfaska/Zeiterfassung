@@ -15,16 +15,21 @@ function hashOf(text: string): string {
 /**
  * The policy for these inline script and style hashes. The page never connects anywhere; it needs no
  * fonts, frames, workers, plug-ins or forms (a download is made from a `blob:` link, which is not a
- * fetch). `data:` images are for the empty favicon only.
+ * fetch). `data:` images are for the empty favicon only. `connect-src` is `'none'` unless the build
+ * names relay origins (see `parseRelayList`): then exactly those origins, nothing else.
  */
-export function cspFor(scriptHashes: readonly string[], styleHashes: readonly string[]): string {
+export function cspFor(
+  scriptHashes: readonly string[],
+  styleHashes: readonly string[],
+  connectOrigins: readonly string[] = [],
+): string {
   return [
     "default-src 'none'",
     `script-src ${scriptHashes.join(' ')}`,
     `style-src ${styleHashes.length > 0 ? styleHashes.join(' ') : "'none'"}`,
     'img-src data:',
     "font-src 'none'",
-    "connect-src 'none'",
+    `connect-src ${connectOrigins.length > 0 ? connectOrigins.join(' ') : "'none'"}`,
     "worker-src 'none'",
     "frame-src 'none'",
     "object-src 'none'",
@@ -37,7 +42,7 @@ export function cspFor(scriptHashes: readonly string[], styleHashes: readonly st
  * Inserts the policy as the first element after `<meta charset>`. Refuses a page that loads a script or
  * stylesheet from outside or already carries a policy — the single file must not.
  */
-export function withCsp(html: string): string {
+export function withCsp(html: string, connectOrigins: readonly string[] = []): string {
   // Look at the page's own markup only: the bundled code may mention these tags as text.
   const markup = html.replace(SCRIPT, (_all, attrs: string) => `<script${attrs}></script>`);
   if (/<meta[^>]+http-equiv=["']?Content-Security-Policy/i.test(markup)) {
@@ -55,6 +60,7 @@ export function withCsp(html: string): string {
   const policy = cspFor(
     scripts.map((match) => hashOf(match[2] ?? '')),
     styles.map((match) => hashOf(match[2] ?? '')),
+    connectOrigins,
   );
   const charset = /<meta charset="UTF-8" \/>|<meta charset="utf-8">/i.exec(markup);
   if (!charset) throw new Error('The page has no <meta charset>');

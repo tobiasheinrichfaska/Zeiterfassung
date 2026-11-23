@@ -24,6 +24,13 @@ describe('cspFor', () => {
     expect(p).not.toMatch(/unsafe|\*|https?:/);
   });
 
+  it('names the origins that are given for connect-src, and none otherwise', () => {
+    expect(cspFor(["'sha256-A='"], [])).toContain("connect-src 'none'");
+    expect(cspFor(["'sha256-A='"], [], ['https://a.example', 'http://localhost:1'])).toContain(
+      'connect-src https://a.example http://localhost:1;',
+    );
+  });
+
   it('lists style hashes when there are inline styles', () => {
     expect(cspFor(["'sha256-A='"], ["'sha256-B='", "'sha256-C='"])).toContain(
       "style-src 'sha256-B=' 'sha256-C='",
@@ -47,6 +54,12 @@ describe('withCsp', () => {
     const p = policyOf(withCsp(page(`<script>${js}</script>`, `<style>${css}</style>`)));
     expect(p).toContain(`style-src ${hash(css)}`);
     expect(p).toContain(hash(js));
+  });
+
+  it('passes the relay origins on to connect-src', () => {
+    const html = withCsp(page('<script>1</script>'), ['https://relay.example']);
+    expect(policyOf(html)).toContain('connect-src https://relay.example;');
+    expect(policyOf(withCsp(page('<script>1</script>')))).toContain("connect-src 'none'");
   });
 
   it('refuses a page that already has a policy', () => {

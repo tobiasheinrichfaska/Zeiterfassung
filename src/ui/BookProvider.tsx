@@ -11,6 +11,7 @@ import {
 } from '../logic/index.ts';
 import { BookContext, type BookApi } from './bookContext.ts';
 import { styles } from './styles.ts';
+import { useLatest } from './useLatest.ts';
 
 /**
  * Holds the book: reads it from the open vault once, writes every change back, and shows every
@@ -22,6 +23,8 @@ export function BookProvider({ vault, children }: { vault: Vault; children: Reac
     loaded.kind === 'ok' ? loaded.book : undefined,
   );
   const [error, setError] = useState<string | undefined>();
+  const latest = useLatest<TimeBook | undefined>(book);
+  const getBook = latest.get as () => TimeBook;
 
   useEffect(() => vault.onError(setError), [vault]);
 
@@ -36,19 +39,27 @@ export function BookProvider({ vault, children }: { vault: Vault; children: Reac
         setError(refused);
         return false;
       }
+      latest.set(result.value);
       setBook(result.value);
       setError(undefined);
       return true;
     },
-    [vault],
+    [vault, latest],
   );
 
   const api = useMemo<BookApi | undefined>(
     () =>
       book === undefined
         ? undefined
-        : { book, apply, error, showError: setError, dismissError: () => setError(undefined) },
-    [book, apply, error],
+        : {
+            book,
+            getBook,
+            apply,
+            error,
+            showError: setError,
+            dismissError: () => setError(undefined),
+          },
+    [book, getBook, apply, error],
   );
 
   if (loaded.kind === 'unreadable' || api === undefined) {

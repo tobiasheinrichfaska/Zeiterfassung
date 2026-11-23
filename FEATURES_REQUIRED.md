@@ -21,6 +21,8 @@ durchgespielt** (siehe `manual_tests/`, MT-01 bis MT-13).
 - [x] **Angefangenes Formular bleibt erhalten** (Speicher + Tresor-Fach) und die Seite der Räder wird gemerkt — `tests/draft-lastpage.test.ts`
 - [x] **Strenge Content-Security-Policy** in der gebauten Datei — `tests/build/` (im Browser ungeprüft)
 - [x] **PDF nach PDF/A-3b gebaut** (nicht validiert) — `tests/pdfa.test.ts`
+- [x] **Zeitstempel-Kette:** jede abgeschlossene Schreibaktion und jeder abgelaufene Tag wird verkettet; Bruch wird erkannt — `tests/stamps.test.ts`
+- [x] **Externe Anker:** Status (off/nothing/ok/due/overdue), strenge Aufnahme, Bericht mit Ankern und Token — `tests/anchors.test.ts`, `tests/report-stamps.test.ts`, `tests/anchor-service.test.ts` (nur mit Stellvertreter-Dienst; echter Dienst nicht angeschlossen)
 - [x] **Aufbewahrung:** nur exportierte Monate werden auf Bestätigung gelöscht — `tests/backup-retention.test.ts`
 
 | Path                                             | Impact                                      | Audit Check                                      |

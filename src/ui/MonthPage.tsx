@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import {
   LOG_NOTICE,
+  anchorStatusText,
+  formatIsoDateTime,
+  stampsOfMonth,
   changedDates,
   changeText,
   changesOfMonth,
@@ -26,12 +29,14 @@ import { canShareFile, downloadFile, shareFile } from '../io/files.ts';
 import { useBookApi } from './bookContext.ts';
 import { DayForm } from './DayForm.tsx';
 import { useDrafts } from './draftContext.ts';
+import { useAnchoring } from './anchorContext.ts';
 import { useAskReason } from './promptContext.ts';
 import { pdfAssets } from './pdfAssets.ts';
 import { styles } from './styles.ts';
 
 export function MonthPage() {
-  const { book, apply, showError } = useBookApi();
+  const { book, getBook, apply, showError } = useBookApi();
+  const anchoring = useAnchoring();
   const askReason = useAskReason();
   const { drafts, setMonthDraft } = useDrafts();
   // a correction that was started before the page was left opens again where it was
@@ -47,6 +52,7 @@ export function MonthPage() {
   const exportedAt = book.exportedMonths[month];
   const changed = changedDates(book, month);
   const monthChanges = changesOfMonth(book, month);
+  const monthStamps = stampsOfMonth(book, month);
   const editingDay = editing === undefined ? undefined : book.days[editing];
 
   const go = (delta: number) => {
@@ -94,9 +100,13 @@ export function MonthPage() {
     ) {
       return;
     }
+    // first the days that ended are sealed and a fresh external time stamp is tried; if that is not
+    // possible the export goes on and the report says how things stand
+    anchoring.sealNow();
+    const round = await anchoring.anchorNow();
     const nowIso = new Date().toISOString();
     try {
-      const pdf = await monthToPdf(book, month, nowIso, pdfAssets());
+      const pdf = await monthToPdf(getBook(), month, nowIso, pdfAssets());
       if (!pdf.ok) return showError(reasonText(pdf.reason));
       const name = pdfFileName(month);
       if (share) {
@@ -105,11 +115,14 @@ export function MonthPage() {
       } else {
         downloadFile(name, 'application/pdf', pdf.value);
       }
-      if (apply(markExported(book, month, nowIso))) {
+      if (apply(markExported(getBook(), month, nowIso))) {
+        const done = share
+          ? 'Die Datei wurde weitergegeben.'
+          : `Gespeichert als ${name} (Ordner „Downloads“).`;
         setInfo(
-          share
-            ? 'Die Datei wurde weitergegeben.'
-            : `Gespeichert als ${name} (Ordner „Downloads“).`,
+          round === 'failed'
+            ? `${done} Es gab keinen frischen externen Zeitstempel; der Bericht nennt den Stand.`
+            : done,
         );
       }
     } catch (error) {
@@ -233,6 +246,58 @@ export function MonthPage() {
           </ul>
         </section>
       )}
+
+      <section style={styles.card} aria-label="Zeitstempel">
+        <h3>Zeitstempel</h3>
+        <p data-state={anchoring.status.state} role="status">
+          {anchorStatusText(anchoring.status)}
+        </p>
+        <p>
+          Die internen Stempel stammen von der Geräteuhr und belegen keine Zeit; nur die externen
+          Zeitstempel belegen sie. Die App kann nur stempeln lassen, solange sie geöffnet und online
+          ist.
+        </p>
+        <button
+          type="button"
+          style={styles.button}
+          disabled={!anchoring.serviceAvailable || anchoring.busy}
+          onClick={() => void anchoring.anchorNow()}
+        >
+          Jetzt extern stempeln
+        </button>
+        <details style={{ marginTop: '0.75rem' }}>
+          <summary>Stempelkette dieses Monats ({monthStamps.length})</summary>
+          {monthStamps.length === 0 ? (
+            <p>Keine Stempel in diesem Monat.</p>
+          ) : (
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  {['Nr.', 'Zeit (Geräteuhr)', 'Art', 'Tag', 'Prüfsumme'].map((h) => (
+                    <th key={h} style={styles.cell}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {monthStamps.map((s) => (
+                  <tr key={s.n}>
+                    <td style={styles.cell}>{s.n}</td>
+                    <td style={styles.cell}>
+                      {formatIsoDateTime(s.at)}
+                      {s.skew && <em> (Uhr zurückgestellt)</em>}
+                    </td>
+                    <td style={styles.cell}>{s.kind === 'seal' ? 'Abschluss' : 'Änderung'}</td>
+                    <td style={styles.cell}>{s.date}</td>
+                    <td style={styles.cell}>{s.hash.slice(0, 12)}…</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </details>
+      </section>
 
       <section style={styles.card}>
         <h3>Für die Personalakte</h3>

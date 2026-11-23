@@ -259,10 +259,22 @@
       <tr><td>maxReasonChars</td><td>200</td><td>Begründung einer Änderung</td></tr>
     </table>
 
+    <h2>6a Externe Zeitstempel und der Weiterreicher einer Fassung</h2>
+    <p>
+      Die App spricht <strong>nur</strong> mit Adressen, die beim Bauen der Datei benannt wurden
+      (Umgebungsvariable <code>VITE_TIMESTAMP_RELAY</code>, mehrere Adressen durch Komma). Die Sicherheitsrichtlinie der Seite
+      (<code>connect-src</code>) erlaubt genau deren Herkunft (Schema, Rechner, Anschluss) und sonst nichts; ohne die Variable
+      steht dort <code>'none'</code>. Die Einstellung „Weiterreicher“ ist deshalb eine <em>Auswahl</em> unter den erlaubten
+      Adressen: Eine zur Laufzeit eingetragene oder aus einer Sicherung gelesene Adresse, die nicht dazu gehört, wird beim
+      Speichern abgelehnt (<code>bad-relay</code>) und beim Benutzen ignoriert; der Browser würde die Verbindung ohnehin
+      verweigern. Der Weiterreicher sieht Zeitpunkt und Netzadresse der Anfrage, nie Zeiten oder Notizen: gesendet wird nur
+      der Hash des Kettenkopfes. Die Adresse und das Antwortformat (<code>{tsaId, genTime, token}</code>) sind
+      <strong>vorläufig</strong> und werden mit dem Weiterreicher-Paket abgeglichen.
+    </p>
     <h2>7 Werkseinstellungen</h2>
     <p>
       Keine eingebauten Daten. Nur die Voreinstellungen eines leeren Buchs (<code>DEFAULT_SETTINGS</code>):
-      <code>employeeLabel</code> leer, <code>retentionMonths</code> 24. Sie werden beim Anlegen eines leeren Buchs
+      <code>employeeLabel</code> leer, <code>retentionMonths</code> 24, <code>timestampRelay</code> leer (aus). Sie werden beim Anlegen eines leeren Buchs
       gesetzt und können in den Einstellungen geändert werden. 24 Monate ist ein Startwert, keine rechtliche
       Vorgabe; die richtige Frist ist mit der Personalverantwortung zu klären.
     </p>

@@ -7,7 +7,7 @@ dem eigenen Gerät läuft und nichts ins Netz sendet.
 **Stand: Stufe 1 gebaut, noch nicht im Browser erprobt.** Stechuhr, Eingabeformular, Monatsansicht,
 verschlüsselter Speicher, Sicherungsdatei und der PDF-Export (Tabelle mit angehängtem JSON, nach PDF/A-3b gebaut und noch nicht validiert) sind da; die
 Logik und das PDF sind automatisch getestet, die Bildschirme noch von niemandem durchgespielt
-(`manual_tests/`).
+(`manual_tests/`). Jede Festschreibung wird zeitgestempelt (Hashkette); ein externer Zeitstempeldienst kann die Kette beglaubigen, sobald ein Weiterreicher eingerichtet ist.
 
 ## Stufen
 

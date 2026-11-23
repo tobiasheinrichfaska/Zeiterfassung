@@ -3,6 +3,8 @@ import type { Result, TimeBook } from '../logic/index.ts';
 
 export interface BookApi {
   book: TimeBook;
+  /** The book as it is right now (also inside a function that was started earlier). */
+  getBook(): TimeBook;
   /** Takes the result of a logic action: stores the new book, or shows the refusal. */
   apply(result: Result<TimeBook>): boolean;
   /** A message to show (a refusal or a storage error) until it is dismissed. */
