@@ -4,7 +4,7 @@ export * from './validate.ts';
 export * from './actions.ts';
 export * from './changes.ts';
 export * from './summary.ts';
-export * from './xml.ts';
+export * from './report.ts';
 export * from './backup.ts';
 export * from './retention.ts';
 export * from './store.ts';

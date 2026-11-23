@@ -30,8 +30,9 @@ Alle Daten sind erfunden. Bisher in keinem echten Browser durchgespielt.
 
 **Erwartet**
 
+- Gibt es nachträgliche Änderungen im Monat, zeigt das PDF den Abschnitt „Nachträgliche Änderungen“ mit Datum, Zeitpunkt, vorher, nachher und Begründung.
 - Das PDF zeigt Überschrift „Arbeitszeit <Monat Jahr>“, den Namen, die Tabelle, die Summe und den Satz über die angehängte Datei.
-- Nicht offensichtlich: Der Anhang (`zeiterfassung-JJJJ-MM.xml`) ist nur im PDF-Programm sichtbar (zum Beispiel „Anlagen“ im Adobe Reader oder im Büroviewer); er dient nur der Bestätigung der Tabelle.
+- Nicht offensichtlich: Der Anhang (`zeiterfassung-JJJJ-MM.json`) ist nur im PDF-Programm sichtbar (zum Beispiel „Anlagen“ im Adobe Reader oder im Büroviewer); er dient nur der Bestätigung der Tabelle. Im Fuß des PDF steht die Prüfsumme (SHA-256) des Anhangs.
 - Unter dem Knopf steht „Dieser Monat wurde am TT.MM.JJJJ exportiert.“
 - Auf einem Handy mit Teilen-Funktion erscheint zusätzlich „PDF teilen …“. Die App hängt nichts selbst an eine E-Mail: Die Datei bitte selbst mailen.
 - Läuft noch ein Tag, kommt vorher eine Rückfrage.

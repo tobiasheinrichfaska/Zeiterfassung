@@ -5,14 +5,14 @@ wahlweise als Eingabeformular oder mit Knöpfen wie an einer Stechuhr. Eine einz
 dem eigenen Gerät läuft und nichts ins Netz sendet.
 
 **Stand: Stufe 1 gebaut, noch nicht im Browser erprobt.** Stechuhr, Eingabeformular, Monatsansicht,
-verschlüsselter Speicher, Sicherungsdatei und der PDF-Export (Tabelle mit angehängtem XML) sind da; die
+verschlüsselter Speicher, Sicherungsdatei und der PDF-Export (Tabelle mit angehängtem JSON) sind da; die
 Logik und das PDF sind automatisch getestet, die Bildschirme noch von niemandem durchgespielt
 (`manual_tests/`).
 
 ## Stufen
 
 1. **Lokal (jetzt):** erfassen, verschlüsselt im Gerät speichern (`local-vault`), Navigation mit
-   `rad-navi`, Sicherungsdatei, am Monatsende eine Zusammenfassung als PDF mit XML-Daten, die der
+   `rad-navi`, Sicherungsdatei, am Monatsende eine Zusammenfassung als PDF mit angehängten JSON-Daten, die der
    Mitarbeiter selbst an die digitale Personalakte mailt.
 2. **Später:** Abgleich zwischen Geräten (`device-sync`) über einen einstellbaren Treffpunkt, damit die
    Personalverantwortung die Zeiten sieht; Übergabe an ein neues Gerät der Personalverantwortung;

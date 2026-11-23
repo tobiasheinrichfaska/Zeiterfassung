@@ -4,7 +4,7 @@ import { isDateKey } from './time.ts';
 const isInt = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n);
 
 /**
- * Free text must be one plain line: no control characters (they would break the XML summary),
+ * Free text must be one plain line: no control characters (they would break the report),
  * no lone surrogates, no noncharacters. Written with char codes, not escapes in a regex.
  */
 function plainText(text: string): boolean {

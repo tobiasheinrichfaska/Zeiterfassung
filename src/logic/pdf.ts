@@ -1,14 +1,12 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import { fail, ok, type MonthKey, type Result, type TimeBook } from './model.ts';
+import { changeText, changesOfMonth, type ChangeText } from './changes.ts';
 import { monthSummary } from './summary.ts';
 import { formatDuration, formatIsoDate, isMonthKey } from './time.ts';
-import { monthToXml } from './xml.ts';
+import { attachmentName, monthToJson, sha256Hex } from './report.ts';
 import { monthLabel, rowTexts } from './view.ts';
 
-/** File name of the attached data file. */
-export const attachmentName = (month: MonthKey): string => `zeiterfassung-${month}.xml`;
-
-/** What the page shows, as plain texts (testable without drawing). */
+/** What the pages show, as plain texts (testable without drawing). */
 export interface MonthLayout {
   title: string;
   employee: string;
@@ -16,7 +14,10 @@ export interface MonthLayout {
   rows: string[][];
   total: string;
   openNote: string | null;
+  changesTitle: string;
+  changes: ChangeText[];
   attachmentNote: string;
+  hashLine: string;
   created: string;
 }
 
@@ -30,7 +31,12 @@ export const COLUMN_HEADERS = [
   'Notiz',
 ];
 
-export function monthLayout(book: TimeBook, month: MonthKey, createdIso: string): MonthLayout {
+export function monthLayout(
+  book: TimeBook,
+  month: MonthKey,
+  createdIso: string,
+  hash: string,
+): MonthLayout {
   const s = monthSummary(book, month);
   return {
     title: `Arbeitszeit ${monthLabel(month)}`,
@@ -45,7 +51,10 @@ export function monthLayout(book: TimeBook, month: MonthKey, createdIso: string)
       s.openDays > 0
         ? `Hinweis: ${s.openDays} Tag(e) laufen noch und sind nicht in der Summe.`
         : null,
+    changesTitle: 'Nachträgliche Änderungen',
+    changes: changesOfMonth(book, month).map(changeText),
     attachmentNote: `Die angehängte Datei ${attachmentName(month)} enthält dieselben Angaben maschinenlesbar und dient nur der Bestätigung der lesbaren Daten.`,
+    hashLine: `Prüfsumme der angehängten Datei (SHA-256): ${hash}`,
     created: `Erstellt am ${formatIsoDate(createdIso)}`,
   };
 }
@@ -58,7 +67,7 @@ const NO_ENTRIES = 'Keine Einträge in diesem Monat.';
 /** Column widths in points; the last column (Notiz) takes the rest. */
 const WIDTHS = [88, 42, 54, 38, 62, 52];
 
-/** Keeps only characters the standard font can show (anything else becomes „?“). */
+/** Keeps only characters the font can show (anything else becomes „?“). */
 function printable(text: string, font: PDFFont): string {
   const known = new Set(font.getCharacterSet());
   let out = '';
@@ -66,18 +75,47 @@ function printable(text: string, font: PDFFont): string {
   return out;
 }
 
-/** Shortens a text with „…“ until it fits the width (the ellipsis is not in WinAnsi: three dots). */
-function fit(text: string, font: PDFFont, width: number): string {
-  if (font.widthOfTextAtSize(text, SIZE) <= width) return text;
+/** Shortens a text with three dots until it fits the width. */
+function fit(text: string, font: PDFFont, size: number, width: number): string {
+  if (font.widthOfTextAtSize(text, size) <= width) return text;
   let cut = text;
-  while (cut.length > 0 && font.widthOfTextAtSize(`${cut}...`, SIZE) > width)
+  while (cut.length > 0 && font.widthOfTextAtSize(`${cut}...`, size) > width)
     cut = cut.slice(0, -1);
   return `${cut}...`;
 }
 
+/** Breaks a text into lines that fit the width (a word longer than a line is cut). */
+export function wrapText(text: string, width: number, measure: (t: string) => number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  const push = () => {
+    if (line) lines.push(line);
+    line = '';
+  };
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    let rest = word;
+    while (measure(rest) > width) {
+      let cut = rest.length - 1;
+      while (cut > 1 && measure(rest.slice(0, cut)) > width) cut -= 1;
+      push();
+      lines.push(rest.slice(0, cut));
+      rest = rest.slice(cut);
+    }
+    const next = line ? `${line} ${rest}` : rest;
+    if (measure(next) <= width) line = next;
+    else {
+      push();
+      line = rest;
+    }
+  }
+  push();
+  return lines.length > 0 ? lines : [''];
+}
+
 /**
- * The monthly summary as a PDF: the readable table, and the XML of `monthToXml` embedded as an
- * attachment that only serves to confirm the readable data. Neutral metadata (no tool names).
+ * The monthly summary as a PDF: the readable table, the logged changes of the month, and the JSON of
+ * `monthToJson` embedded as an attachment that only serves to confirm the readable data (its SHA-256
+ * is printed on the last page). Neutral metadata (no tool names).
  */
 export async function monthToPdf(
   book: TimeBook,
@@ -85,9 +123,10 @@ export async function monthToPdf(
   createdIso: string,
 ): Promise<Result<Uint8Array>> {
   if (!isMonthKey(month)) return fail('bad-month');
-  const xml = monthToXml(book, month, createdIso);
-  if (!xml.ok) return xml;
-  const layout = monthLayout(book, month, createdIso);
+  const json = monthToJson(book, month, createdIso);
+  if (!json.ok) return json;
+  const hash = await sha256Hex(json.value);
+  const layout = monthLayout(book, month, createdIso, hash);
   const created = new Date(createdIso);
 
   const doc = await PDFDocument.create({ updateMetadata: false });
@@ -106,15 +145,36 @@ export async function monthToPdf(
   const text = (t: string) => printable(t, font);
   const xs = WIDTHS.reduce<number[]>((acc, w) => [...acc, (acc.at(-1) ?? MARGIN) + w], [MARGIN]);
   const noteWidth = A4.width - MARGIN - (xs.at(-1) ?? MARGIN);
+  const contentWidth = A4.width - 2 * MARGIN;
 
-  // A month has at most 31 days of one line each, so everything fits on one page.
-  const page: PDFPage = doc.addPage([A4.width, A4.height]);
-  let y = A4.height - MARGIN;
+  const pages: PDFPage[] = [];
+  let page!: PDFPage;
+  let y = 0;
+  const newPage = () => {
+    page = doc.addPage([A4.width, A4.height]);
+    pages.push(page);
+    y = A4.height - MARGIN;
+  };
+  /** Starts a new page when `height` points do not fit above the bottom margin. */
+  const ensure = (height: number) => {
+    if (y - height < MARGIN + 24) newPage();
+  };
+  const line = (t: string, size = SIZE, f: PDFFont = font, indent = 0) => {
+    ensure(size + 4);
+    page.drawText(text(t), { x: MARGIN + indent, y, size, font: f });
+    y -= size + 4;
+  };
+  const paragraph = (t: string, size = SIZE, f: PDFFont = font, indent = 0) => {
+    const lines = wrapText(text(t), contentWidth - indent, (s) => f.widthOfTextAtSize(s, size));
+    lines.forEach((l) => line(l, size, f, indent));
+  };
+
+  newPage();
   page.drawText(text(layout.title), { x: MARGIN, y, size: 16, font: bold });
   y -= 20;
   if (layout.employee) {
-    page.drawText(text(`Mitarbeiter/in: ${layout.employee}`), { x: MARGIN, y, size: 10, font });
-    y -= 16;
+    line(`Mitarbeiter/in: ${layout.employee}`, 10);
+    y -= 2;
   }
   y -= 6;
   layout.header.forEach((h, i) =>
@@ -130,38 +190,57 @@ export async function monthToPdf(
   y -= ROW_HEIGHT - 3;
 
   for (const row of layout.rows) {
+    ensure(ROW_HEIGHT);
     row.forEach((cell, i) => {
       const width = i < WIDTHS.length ? (WIDTHS[i] as number) - 4 : noteWidth;
-      page.drawText(fit(text(cell), font, width), { x: xs[i] ?? MARGIN, y, size: SIZE, font });
+      page.drawText(fit(text(cell), font, SIZE, width), {
+        x: xs[i] ?? MARGIN,
+        y,
+        size: SIZE,
+        font,
+      });
     });
     y -= ROW_HEIGHT;
   }
-  if (layout.rows.length === 0) {
-    page.drawText(text(NO_ENTRIES), { x: MARGIN, y, size: SIZE, font });
-    y -= ROW_HEIGHT;
-  }
+  if (layout.rows.length === 0) line(NO_ENTRIES);
 
   y -= 8;
-  page.drawText(text(layout.total), { x: MARGIN, y, size: 11, font: bold });
-  y -= 16;
-  if (layout.openNote) {
-    page.drawText(text(layout.openNote), { x: MARGIN, y, size: SIZE, font });
-    y -= 14;
-  }
-  page.drawText(text(layout.attachmentNote), {
-    x: MARGIN,
-    y,
-    size: 8,
-    font,
-    maxWidth: A4.width - 2 * MARGIN,
-    lineHeight: 10,
-  });
-  y -= 24;
-  page.drawText(text(layout.created), { x: MARGIN, y, size: 8, font });
+  line(layout.total, 11, bold);
+  y -= 4;
+  if (layout.openNote) line(layout.openNote);
 
-  await doc.attach(new TextEncoder().encode(xml.value), attachmentName(month), {
-    mimeType: 'application/xml',
-    description: 'Maschinenlesbare Daten zur Bestätigung der lesbaren Angaben',
+  if (layout.changes.length > 0) {
+    y -= 10;
+    ensure(60);
+    line(layout.changesTitle, 11, bold);
+    for (const c of layout.changes) {
+      ensure(48);
+      y -= 3;
+      line(`${c.date} – ${c.kind} am ${c.when}${c.link ? ` (${c.link})` : ''}`, SIZE, bold);
+      paragraph(`vorher: ${c.before}`, SIZE, font, 8);
+      paragraph(`nachher: ${c.after}`, SIZE, font, 8);
+      if (c.reason) paragraph(`Begründung: ${c.reason}`, SIZE, font, 8);
+    }
+  }
+
+  y -= 10;
+  ensure(60);
+  paragraph(layout.attachmentNote, 8);
+  line(layout.hashLine, 8);
+  line(layout.created, 8);
+
+  pages.forEach((p, i) =>
+    p.drawText(text(`Seite ${i + 1} von ${pages.length}`), {
+      x: A4.width - MARGIN - 60,
+      y: 24,
+      size: 8,
+      font,
+    }),
+  );
+
+  await doc.attach(new TextEncoder().encode(json.value), attachmentName(month), {
+    mimeType: 'application/json',
+    description: `Maschinenlesbare Daten zur Bestätigung der lesbaren Angaben. SHA-256: ${hash}`,
     creationDate: created,
     modificationDate: created,
   });

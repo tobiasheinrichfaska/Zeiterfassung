@@ -225,9 +225,9 @@ export function MonthPage() {
       <section style={styles.card}>
         <h3>Für die Personalakte</h3>
         <p>
-          Das PDF enthält die Tabelle und, als Anhang, dieselben Daten als XML zur Bestätigung. Aus
-          der App lässt sich keine Datei an eine E-Mail anhängen: bitte die gespeicherte Datei
-          selbst mailen.
+          Das PDF enthält die Tabelle, die nachträglichen Änderungen des Monats und, als Anhang,
+          dieselben Daten als JSON zur Bestätigung (die Prüfsumme steht im PDF). Aus der App lässt
+          sich keine Datei an eine E-Mail anhängen: bitte die gespeicherte Datei selbst mailen.
         </p>
         <div style={styles.row}>
           <button type="button" style={styles.button} onClick={() => void exportPdf(false)}>
