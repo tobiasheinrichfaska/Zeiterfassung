@@ -222,7 +222,12 @@ export type Reason =
   | 'second-open-day'
   | 'too-many-days'
   | 'bad-backup'
-  | 'unknown-version';
+  | 'unknown-version'
+  | 'bad-pdf'
+  | 'wrong-month'
+  | 'day-in-pdf'
+  | 'day-running'
+  | 'pdf-append-failed';
 
 export type Result<T> = { ok: true; value: T } | { ok: false; reason: Reason };
 

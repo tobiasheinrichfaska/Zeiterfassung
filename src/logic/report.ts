@@ -1,7 +1,7 @@
-import { fail, ok, type MonthKey, type Result, type TimeBook } from './model.ts';
+import { fail, ok, type DateKey, type MonthKey, type Result, type TimeBook } from './model.ts';
 import { changesOfMonth } from './changes.ts';
 import { monthSummary } from './summary.ts';
-import { formatClock, isMonthKey } from './time.ts';
+import { formatClock, isDateKey, isMonthKey, monthOf } from './time.ts';
 import { canonicalJson, type Json } from './canonical.ts';
 import { anchorStatus, coveredUpTo, type AnchorStatus } from './anchors.ts';
 import { chainHead, skewedStamps, stampsOfMonth } from './stamps.ts';
@@ -50,11 +50,31 @@ export const REPORT_VERSION = 2;
 export const attachmentName = (month: MonthKey): string => `zeiterfassung-${month}.json`;
 
 /**
- * The monthly data as the attached file: format and version, employee label, creation time, the days
- * with their sums, the open days and the logged changes of the month.
+ * The book cut off after `upTo`: only the days up to and including that date and only the logged changes
+ * of such days. The stamp chain and the anchors stay as they are (they describe the state at creation).
  */
-export function monthToJson(book: TimeBook, month: MonthKey, createdIso: string): Result<string> {
+export function bookUpTo(book: TimeBook, upTo: DateKey): TimeBook {
+  const days: TimeBook['days'] = {};
+  for (const [date, day] of Object.entries(book.days)) if (date <= upTo) days[date] = day;
+  return { ...book, days, changes: book.changes.filter((c) => c.date <= upTo) };
+}
+
+/**
+ * The monthly data as the attached file: format and version, employee label, creation time, the days
+ * with their sums, the open days and the logged changes of the month. With `upTo` (running monthly PDF)
+ * only the days and changes up to and including that date, and the field `upTo` says so.
+ */
+export function monthToJson(
+  book: TimeBook,
+  month: MonthKey,
+  createdIso: string,
+  upTo?: DateKey,
+): Result<string> {
   if (!isMonthKey(month)) return fail('bad-month');
+  if (upTo !== undefined) {
+    if (!isDateKey(upTo) || monthOf(upTo) !== month) return fail('bad-date');
+    book = bookUpTo(book, upTo);
+  }
   const s = monthSummary(book, month);
   const days: Json[] = s.rows.map((r) => {
     const day = book.days[r.date];
@@ -94,6 +114,7 @@ export function monthToJson(book: TimeBook, month: MonthKey, createdIso: string)
       openDays: s.openDays,
       changes,
       timestamps: timestampsJson(monthTimestamps(book, month, createdIso), book.stampBase),
+      ...(upTo === undefined ? {} : { upTo }),
     }),
   );
 }
