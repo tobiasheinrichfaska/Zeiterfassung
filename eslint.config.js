@@ -16,6 +16,8 @@ export default defineConfig([
     'playwright-report',
     'test-results',
     'e2e',
+    // Base library in a subdirectory with its own toolchain (to be extracted, see its HERAUSLOESEN.md).
+    'pdf-fortschreiben',
   ]),
   {
     files: ['**/*.{ts,tsx}'],
