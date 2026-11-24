@@ -1,12 +1,7 @@
-// The one place that names where the Zeitstempel library (RFC 3161 reader and verifier) and its data come
-// from. The package is pinned to a commit (see CLAUDE.md); it has no build and no tag yet, so its source
-// and data files are read from the installed package directly. Once a tag with a build is approved, only
-// this file changes (import from 'zeitstempel' instead).
-import {
-  verifyTimestampToken,
-  fromBase64Url,
-  readServices,
-} from '../../node_modules/zeitstempel/src/lib/index.ts';
+// The one place that names where the Zeitstempel library (RFC 3161 reader, verifier and relay client) and
+// its data come from. The package comes by Git tag (built on install); its data files (`services.json`,
+// `anchors/*.pem`) are not in the package's exports, so they are read from the installed package by path.
+import { verifyTimestampToken, fromBase64Url, readServices } from 'zeitstempel';
 import servicesData from '../../node_modules/zeitstempel/services.json';
 
 export { verifyTimestampToken, fromBase64Url };

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { readTimestampResponse } from '../node_modules/zeitstempel/src/lib/index.ts';
+import { readTimestampResponse } from 'zeitstempel';
 import { trustedServices } from '../src/io/zeitstempel.ts';
 import {
   addAnchor,
