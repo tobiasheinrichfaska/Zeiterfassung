@@ -47,6 +47,14 @@ export const REASON_TEXTS: Record<Reason, string> = {
   'bad-backup': 'Die Daten sind nicht lesbar oder entsprechen nicht dem erwarteten Format.',
   'unknown-version':
     'Die Daten haben eine unbekannte Formatversion (vermutlich von einer neueren App).',
+  'bad-pdf': 'Die Datei ist keine lesbare laufende Monatsdatei (PDF) dieser App.',
+  'wrong-month': 'Dieser Tag gehört nicht zum Monat der laufenden Monatsdatei.',
+  'day-in-pdf':
+    'Dieser Tag steht schon in der laufenden Monatsdatei; er wird nicht ein zweites Mal angehängt.',
+  'day-running':
+    'Der Tag läuft noch. Er wird erst nach „Gehen“ in die laufende Monatsdatei geschrieben.',
+  'pdf-append-failed':
+    'Die laufende Monatsdatei konnte nicht fortgeschrieben werden. Die bisherige Datei bleibt unverändert.',
 };
 
 /** Text for a code; falls back to the code itself so an error is never silent. */

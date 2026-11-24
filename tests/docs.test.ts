@@ -43,6 +43,11 @@ const REASONS: Record<Reason, true> = {
   'too-many-days': true,
   'bad-backup': true,
   'unknown-version': true,
+  'bad-pdf': true,
+  'wrong-month': true,
+  'day-in-pdf': true,
+  'day-running': true,
+  'pdf-append-failed': true,
 };
 
 describe('docs/data-model.html against the code', () => {
@@ -132,6 +137,10 @@ describe('docs/data-model.html against the code', () => {
       'srgbIccProfile',
       'keepSupported',
       'wrapText',
+      'startRunningPdf',
+      'appendRunningDay',
+      'runningPdfState',
+      'bookUpTo',
     ];
     for (const name of documented) {
       expect(typeof logic[name], name).toBe('function');

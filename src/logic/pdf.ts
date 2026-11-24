@@ -192,6 +192,114 @@ export function wrapText(text: string, width: number, measure: (t: string) => nu
   return lines.length > 0 ? lines : [''];
 }
 
+/** Draws pages top-down: lines, wrapped paragraphs, the day table, the change log, page footers. */
+export interface PageWriter {
+  readonly pages: PDFPage[];
+  newPage(): void;
+  /** Starts a new page when `height` points do not fit above the bottom margin. */
+  ensure(height: number): void;
+  gap(points: number): void;
+  title(text: string): void;
+  line(text: string, size?: number, f?: PDFFont, indent?: number): void;
+  paragraph(text: string, size?: number, f?: PDFFont, indent?: number): void;
+  table(header: string[], rows: string[][]): void;
+  changes(title: string, changes: ChangeText[]): void;
+  /** Writes a footer on every page this writer made (index, count). */
+  footers(text: (index: number, count: number) => string): void;
+}
+
+export function pageWriter(doc: PDFDocument, font: PDFFont, bold: PDFFont): PageWriter {
+  const text = (t: string) => printable(t, font);
+  const xs = WIDTHS.reduce<number[]>((acc, w) => [...acc, (acc.at(-1) ?? MARGIN) + w], [MARGIN]);
+  const noteWidth = A4.width - MARGIN - (xs.at(-1) ?? MARGIN);
+  const contentWidth = A4.width - 2 * MARGIN;
+
+  const pages: PDFPage[] = [];
+  let page!: PDFPage;
+  let y = 0;
+  const newPage = () => {
+    page = doc.addPage([A4.width, A4.height]);
+    pages.push(page);
+    y = A4.height - MARGIN;
+  };
+  const ensure = (height: number) => {
+    if (y - height < MARGIN + 24) newPage();
+  };
+  const line = (t: string, size = SIZE, f: PDFFont = font, indent = 0) => {
+    ensure(size + 4);
+    drawBlack(page, text(t), { x: MARGIN + indent, y, size, font: f });
+    y -= size + 4;
+  };
+  const paragraph = (t: string, size = SIZE, f: PDFFont = font, indent = 0) => {
+    const lines = wrapText(text(t), contentWidth - indent, (s) => f.widthOfTextAtSize(s, size));
+    lines.forEach((l) => line(l, size, f, indent));
+  };
+  return {
+    pages,
+    newPage,
+    ensure,
+    line,
+    paragraph,
+    gap: (points) => {
+      y -= points;
+    },
+    title: (t) => {
+      drawBlack(page, text(t), { x: MARGIN, y, size: 16, font: bold });
+      y -= 20;
+    },
+    table: (header, rows) => {
+      header.forEach((h, i) =>
+        drawBlack(page, text(h), { x: xs[i] ?? MARGIN, y, size: SIZE, font: bold }),
+      );
+      y -= 4;
+      page.drawLine({
+        start: { x: MARGIN, y },
+        end: { x: A4.width - MARGIN, y },
+        thickness: 0.5,
+        color: BLACK,
+      });
+      y -= ROW_HEIGHT - 3;
+      for (const row of rows) {
+        ensure(ROW_HEIGHT);
+        row.forEach((cell, i) => {
+          const width = i < WIDTHS.length ? (WIDTHS[i] as number) - 4 : noteWidth;
+          drawBlack(page, fit(text(cell), font, SIZE, width), {
+            x: xs[i] ?? MARGIN,
+            y,
+            size: SIZE,
+            font,
+          });
+        });
+        y -= ROW_HEIGHT;
+      }
+      if (rows.length === 0) line(NO_ENTRIES);
+    },
+    changes: (title, changes) => {
+      if (changes.length === 0) return;
+      y -= 10;
+      ensure(60);
+      line(title, 11, bold);
+      for (const c of changes) {
+        ensure(48);
+        y -= 3;
+        line(`${c.date} – ${c.kind} am ${c.when}${c.link ? ` (${c.link})` : ''}`, SIZE, bold);
+        paragraph(`vorher: ${c.before}`, SIZE, font, 8);
+        paragraph(`nachher: ${c.after}`, SIZE, font, 8);
+        if (c.reason) paragraph(`Begründung: ${c.reason}`, SIZE, font, 8);
+      }
+    },
+    footers: (make) =>
+      pages.forEach((p, i) =>
+        drawBlack(p, text(make(i, pages.length)), {
+          x: A4.width - MARGIN - 60,
+          y: 24,
+          size: 8,
+          font,
+        }),
+      ),
+  };
+}
+
 /** The font files the PDF embeds (the PDF/A rule: no standard fonts without an embedded copy). */
 export interface PdfAssets {
   fontRegular: Uint8Array;
@@ -241,8 +349,51 @@ export function xmpPacket(info: {
   );
 }
 
+/**
+ * The PDF/A-3b pieces every PDF of the app carries: an sRGB output intent with the profile made in code,
+ * the XMP packet (uncompressed) and the document ID (two equal halves: the file was made once).
+ */
+export function addPdfaPieces(
+  doc: PDFDocument,
+  info: { title: string; subject: string; createdIso: string; id: string },
+): void {
+  const { context, catalog } = doc;
+  const profileRef = context.register(
+    context.flateStream(srgbIccProfile(), { N: 3, Alternate: 'DeviceRGB' }),
+  );
+  const intentRef = context.register(
+    context.obj({
+      Type: 'OutputIntent',
+      S: 'GTS_PDFA1',
+      OutputConditionIdentifier: PDFString.of('sRGB'),
+      Info: PDFString.of('sRGB'),
+      RegistryName: PDFString.of('http://www.color.org'),
+      DestOutputProfile: profileRef,
+    }),
+  );
+  catalog.set(PDFName.of('OutputIntents'), context.obj([intentRef]));
+  const xmp = new TextEncoder().encode(
+    xmpPacket({
+      title: info.title,
+      subject: info.subject,
+      producer: 'Zeiterfassung',
+      creatorTool: 'Zeiterfassung',
+      createdIso: info.createdIso,
+    }),
+  );
+  const metadataRef: PDFRef = context.register(
+    context.stream(xmp, { Type: 'Metadata', Subtype: 'XML' }),
+  );
+  catalog.set(PDFName.of('Metadata'), metadataRef);
+  const id = PDFHexString.of(info.id);
+  const ids = PDFArray.withContext(context);
+  ids.push(id);
+  ids.push(id);
+  context.trailerInfo.ID = ids;
+}
+
 /** A deterministic 16-byte document ID from what the file is made of (hex, 32 digits). */
-function documentId(...parts: string[]): string {
+export function documentId(...parts: string[]): string {
   return sha256Hex(parts.join('\n')).slice(0, 32);
 }
 
@@ -286,106 +437,33 @@ export async function monthToPdf(
     subset: true,
     customName: 'ZEIBLD+NotoSans-Bold',
   });
-  const text = (t: string) => printable(t, font);
-  const xs = WIDTHS.reduce<number[]>((acc, w) => [...acc, (acc.at(-1) ?? MARGIN) + w], [MARGIN]);
-  const noteWidth = A4.width - MARGIN - (xs.at(-1) ?? MARGIN);
-  const contentWidth = A4.width - 2 * MARGIN;
-
-  const pages: PDFPage[] = [];
-  let page!: PDFPage;
-  let y = 0;
-  const newPage = () => {
-    page = doc.addPage([A4.width, A4.height]);
-    pages.push(page);
-    y = A4.height - MARGIN;
-  };
-  /** Starts a new page when `height` points do not fit above the bottom margin. */
-  const ensure = (height: number) => {
-    if (y - height < MARGIN + 24) newPage();
-  };
-  const line = (t: string, size = SIZE, f: PDFFont = font, indent = 0) => {
-    ensure(size + 4);
-    drawBlack(page, text(t), { x: MARGIN + indent, y, size, font: f });
-    y -= size + 4;
-  };
-  const paragraph = (t: string, size = SIZE, f: PDFFont = font, indent = 0) => {
-    const lines = wrapText(text(t), contentWidth - indent, (s) => f.widthOfTextAtSize(s, size));
-    lines.forEach((l) => line(l, size, f, indent));
-  };
-
-  newPage();
-  drawBlack(page, text(layout.title), { x: MARGIN, y, size: 16, font: bold });
-  y -= 20;
+  const w = pageWriter(doc, font, bold);
+  w.newPage();
+  w.title(layout.title);
   if (layout.employee) {
-    line(`Mitarbeiter/in: ${layout.employee}`, 10);
-    y -= 2;
+    w.line(`Mitarbeiter/in: ${layout.employee}`, 10);
+    w.gap(2);
   }
-  y -= 6;
-  layout.header.forEach((h, i) =>
-    drawBlack(page, text(h), { x: xs[i] ?? MARGIN, y, size: SIZE, font: bold }),
-  );
-  y -= 4;
-  page.drawLine({
-    start: { x: MARGIN, y },
-    end: { x: A4.width - MARGIN, y },
-    thickness: 0.5,
-    color: BLACK,
-  });
-  y -= ROW_HEIGHT - 3;
+  w.gap(6);
+  w.table(layout.header, layout.rows);
+  w.gap(8);
+  w.line(layout.total, 11, bold);
+  w.gap(4);
+  if (layout.openNote) w.line(layout.openNote);
+  w.changes(layout.changesTitle, layout.changes);
 
-  for (const row of layout.rows) {
-    ensure(ROW_HEIGHT);
-    row.forEach((cell, i) => {
-      const width = i < WIDTHS.length ? (WIDTHS[i] as number) - 4 : noteWidth;
-      drawBlack(page, fit(text(cell), font, SIZE, width), {
-        x: xs[i] ?? MARGIN,
-        y,
-        size: SIZE,
-        font,
-      });
-    });
-    y -= ROW_HEIGHT;
-  }
-  if (layout.rows.length === 0) line(NO_ENTRIES);
+  w.gap(10);
+  w.ensure(60);
+  w.line(layout.stampsTitle, 11, bold);
+  for (const l of layout.stampLines) w.paragraph(l, 8, font, 8);
 
-  y -= 8;
-  line(layout.total, 11, bold);
-  y -= 4;
-  if (layout.openNote) line(layout.openNote);
+  w.gap(10);
+  w.ensure(60);
+  w.paragraph(layout.attachmentNote, 8);
+  w.line(layout.hashLine, 8);
+  w.line(layout.created, 8);
 
-  if (layout.changes.length > 0) {
-    y -= 10;
-    ensure(60);
-    line(layout.changesTitle, 11, bold);
-    for (const c of layout.changes) {
-      ensure(48);
-      y -= 3;
-      line(`${c.date} – ${c.kind} am ${c.when}${c.link ? ` (${c.link})` : ''}`, SIZE, bold);
-      paragraph(`vorher: ${c.before}`, SIZE, font, 8);
-      paragraph(`nachher: ${c.after}`, SIZE, font, 8);
-      if (c.reason) paragraph(`Begründung: ${c.reason}`, SIZE, font, 8);
-    }
-  }
-
-  y -= 10;
-  ensure(60);
-  line(layout.stampsTitle, 11, bold);
-  for (const l of layout.stampLines) paragraph(l, 8, font, 8);
-
-  y -= 10;
-  ensure(60);
-  paragraph(layout.attachmentNote, 8);
-  line(layout.hashLine, 8);
-  line(layout.created, 8);
-
-  pages.forEach((p, i) =>
-    drawBlack(p, text(`Seite ${i + 1} von ${pages.length}`), {
-      x: A4.width - MARGIN - 60,
-      y: 24,
-      size: 8,
-      font,
-    }),
-  );
+  w.footers((i, n) => `Seite ${i + 1} von ${n}`);
 
   const { context } = doc;
   const catalog = doc.catalog;
@@ -421,43 +499,12 @@ export async function monthToPdf(
   );
   catalog.set(PDFName.of('AF'), context.obj([fileSpecRef]));
 
-  // output intent with an embedded sRGB profile
-  const profileRef = context.register(
-    context.flateStream(srgbIccProfile(), { N: 3, Alternate: 'DeviceRGB' }),
-  );
-  const intentRef = context.register(
-    context.obj({
-      Type: 'OutputIntent',
-      S: 'GTS_PDFA1',
-      OutputConditionIdentifier: PDFString.of('sRGB'),
-      Info: PDFString.of('sRGB'),
-      RegistryName: PDFString.of('http://www.color.org'),
-      DestOutputProfile: profileRef,
-    }),
-  );
-  catalog.set(PDFName.of('OutputIntents'), context.obj([intentRef]));
-
-  // XMP metadata (uncompressed, as PDF/A asks)
-  const xmp = new TextEncoder().encode(
-    xmpPacket({
-      title: layout.title,
-      subject,
-      producer: 'Zeiterfassung',
-      creatorTool: 'Zeiterfassung',
-      createdIso,
-    }),
-  );
-  const metadataRef: PDFRef = context.register(
-    context.stream(xmp, { Type: 'Metadata', Subtype: 'XML' }),
-  );
-  catalog.set(PDFName.of('Metadata'), metadataRef);
-
-  // document ID (two equal halves: the file was made once)
-  const id = PDFHexString.of(documentId(hash, createdIso, layout.title));
-  const ids = PDFArray.withContext(context);
-  ids.push(id);
-  ids.push(id);
-  context.trailerInfo.ID = ids;
+  addPdfaPieces(doc, {
+    title: layout.title,
+    subject,
+    createdIso,
+    id: documentId(hash, createdIso, layout.title),
+  });
 
   // plain objects (no object streams): the attachment stays visible to simple readers and archives
   return ok(await doc.save({ useObjectStreams: false }));
