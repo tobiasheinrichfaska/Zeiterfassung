@@ -46,22 +46,19 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
   `src/io/zeitstempel.ts`.** The tarball URL works only while the repository is readable without a login.
 - **Pending switch to the library's relay client (Tobias 2026-11-24):** `zeitstempel` now has
   `createRelayClient` (same behaviour as `src/io/anchorService.ts`, plus fixes: 429 on the service list
-  pauses too, a network error tries the next service, `Retry-After` as a date) and a `prepare` build
-  (merged as `a7a2db4`); the tag `v0.1.0` on that commit is approved but must be pushed from the PC
-  (see `pdf-fortschreiben/HERAUSLOESEN.md`). **Next step here:** switch `package.json` to `github:tobiasheinrichfaska/zeitstempel#<tag>`,
-  import from `zeitstempel` in `src/io/zeitstempel.ts`, and make `createRelayService` a thin adapter over
-  `createRelayClient` (keep `AnchorService`, `AnchorOutcome` and the German texts; map the library's codes to
-  them). Re-run `e2e/` afterwards.
+  pauses too, a network error tries the next service, `Retry-After` as a date) and a `prepare` build; **tag
+  `v0.1.0`** (commit `a7a2db4`) exists. **Next step here:** switch `package.json` to
+  `github:tobiasheinrichfaska/zeitstempel#v0.1.0`, import from `zeitstempel` in `src/io/zeitstempel.ts`, and
+  make `createRelayService` a thin adapter over `createRelayClient` (keep `AnchorService`, `AnchorOutcome` and
+  the German texts; map the library's codes to them). Re-run `e2e/` afterwards.
 - **Running monthly PDF (decided 2026-11-24, not built yet):** one PDF per month, continued with
   `pdf-fortschreiben`; at „Gehen“ (or at the next start if the app was closed or offline) the day's state is
   appended as **a new page** (table up to that day) plus **a new JSON attachment with its own name** (add only),
   then one document time stamp. Free services first (qualified later, only in the relay). The stamp chain
   and `anchors` **both stay** as they are.
-- **Base library in a subdirectory (TEMPORARY):** `pdf-fortschreiben/` is a separate base library (incremental
-  PDF revisions, PDF/A-3 attachments, PAdES document time stamps) with its own `package.json`, tests and CI job
-  (`pdf-fortschreiben` in `tests.yml`); the app does **not** use it yet. It lives here only because the cloud
-  session could not create a repository. **Claude on the PC: extract it into its own repo next time, following
-  `pdf-fortschreiben/HERAUSLOESEN.md`.** The root lint and format checks ignore it.
+- **Base library `pdf-fortschreiben`** (incremental PDF revisions, PDF/A-3 attachments, PAdES document time
+  stamps) lives in its own repository `tobiasheinrichfaska/pdf-fortschreiben` (extracted 2026-11-24 with its
+  history). The app does **not** use it yet; no dependency is added until Tobias approves a tag with a build.
 - The device clock is not a trusted time: `recordedAt` and the stamped minutes are what the device says.
 - Retention: only a month that was **exported** may be purged, and never a running day.
 
@@ -99,7 +96,6 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
 | `third_party/`                                                                             | Licence texts and the list of third-party material (Noto Sans OFL 1.1, pdf-lib MIT, fontkit MIT)                                                                                                                                                                                                                                                                                                                                                                                       |
 | `src/io/anchorService.ts`                                                                  | `AnchorService` (injected), `createRelayService` (adapter for the Zeitstempel relay: `GET /v1/services`, `POST /v1/stamp/<id>` with `{hash}` in Base64url, 20 s deadline per call, 429 `Retry-After` pause, next service on 502/504, **verifies every token itself** with the library against the shipped anchors), `requestAnchor` (one round, always a text on failure)                                                                                                              |
 | `src/io/zeitstempel.ts`                                                                    | The one place that names the Zeitstempel library and its data (`services.json`, `anchors/*.pem`, bundled as text): `trustedServices()`, `verifyTimestampToken`. Reads the installed package's `src` directly (see Dependency note)                                                                                                                                                                                                                                                     |
-| `pdf-fortschreiben/`                                                                       | Base library to be extracted (own toolchain, own `CLAUDE.md`, `HERAUSLOESEN.md`): append revisions, attachments, document time stamps; not used by the app yet                                                                                                                                                                                                                                                                                                                         |
 | `e2e/`                                                                                     | Headless-Chromium run against a local Zeitstempel relay with a test PKI (not part of `npm test`; `e2e/README.md`)                                                                                                                                                                                                                                                                                                                                                                      |
 | `src/io/files.ts`                                                                          | Browser files: download, share sheet, read a chosen file; `drafts.ts` (draft slot of the vault), `lastPage.ts` (remembered page)                                                                                                                                                                                                                                                                                                                                                       |
 | `src/ui/`                                                                                  | React: `App` (wheel navigation, error banner), `BookProvider`/`bookContext` (book in the vault, every refusal shown), pages `StampPage`, `FormPage` + `DayForm`, `MonthPage`, `SettingsPage`, `BackupPage`, `AnchorProvider` (seals every minute, asks for a time stamp at the start and every 15 minutes), `relayConfig.ts` (the build's relay list), `navigation.ts` (tree as data, German wheel texts), `vault.ts` (prefix `zeiterfassung`, slot `book`, German texts), `styles.ts` |
