@@ -65,9 +65,7 @@ export function anchorRequest(book: TimeBook): AnchorRequest | undefined {
 }
 
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
-const BASE64URL = /^[A-Za-z0-9_-]+$/;
 const SERIAL = /^[0-9a-f]+$/;
-const SERVICE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 
 /**
  * Takes an anchor into the book after checking it strictly: it must cover a stamp that exists and
@@ -160,70 +158,8 @@ export function base64ToBytes(text: string): Uint8Array | null {
   }
 }
 
-/** Base64url without padding → bytes (what the relay sends and takes), or null when it is not that. */
-export function base64UrlToBytes(text: string): Uint8Array | null {
-  if (text.length === 0 || !BASE64URL.test(text) || text.length % 4 === 1) return null;
-  const padded =
-    text.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (text.length % 4)) % 4);
-  try {
-    return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  } catch {
-    return null;
-  }
-}
-
-/** Bytes → Base64url without padding. */
-export const bytesToBase64Url = (bytes: Uint8Array): string =>
-  bytesToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-
 /** A hash of 64 hex digits → its 32 bytes, or null. */
 export function hexToBytes(hex: string): Uint8Array | null {
   if (!isHash(hex)) return null;
   return Uint8Array.from(hex.match(/../g) ?? [], (h) => parseInt(h, 16));
-}
-
-/**
- * Reads the relay's answer to `POST /v1/stamp/<id>` strictly: exactly `service`, `genTime`, `accuracyMs`
- * (whole number or null), `serial` (lower-case hex) and `token` (Base64url of the DER token, within the
- * size limit). Anything else is a bad response, never a guess. The values are **not trusted yet**: the
- * token has to be verified against the hash and the shipped trust anchors (`genTime` here is for display
- * only; the verified token's time counts).
- */
-export function parseRelayAnswer(value: unknown): AnchorOutcome {
-  const bad = (detail: string): AnchorOutcome => ({ ok: false, reason: 'bad-response', detail });
-  if (typeof value !== 'object' || value === null || Array.isArray(value))
-    return bad('kein Objekt');
-  const o = value as Record<string, unknown>;
-  const keys = Object.keys(o).sort().join(',');
-  if (keys !== 'accuracyMs,genTime,serial,service,token') return bad('unerwartete Felder');
-  if (typeof o.service !== 'string' || !SERVICE_ID.test(o.service)) return bad('service');
-  if (typeof o.genTime !== 'string' || Number.isNaN(Date.parse(o.genTime))) return bad('genTime');
-  if (o.accuracyMs !== null && !(Number.isInteger(o.accuracyMs) && (o.accuracyMs as number) >= 0))
-    return bad('accuracyMs');
-  if (
-    typeof o.serial !== 'string' ||
-    !SERIAL.test(o.serial) ||
-    o.serial.length > LIMITS.maxSerialChars
-  )
-    return bad('serial');
-  // Base64url is shorter than Base64 by a quarter at most: the stored (standard) form must fit as well
-  if (typeof o.token !== 'string' || o.token.length > LIMITS.maxAnchorTokenChars * 0.75)
-    return bad('token');
-  const token = base64UrlToBytes(o.token);
-  if (!token) return bad('token');
-  return { ok: true, value: { tsaId: o.service, genTime: o.genTime, serial: o.serial, token } };
-}
-
-/** The service ids of the relay's `GET /v1/services` answer, in the relay's order (at most 32). */
-export function parseServiceList(value: unknown): string[] | null {
-  if (typeof value !== 'object' || value === null) return null;
-  const list = (value as Record<string, unknown>).services;
-  if (!Array.isArray(list) || list.length > 32) return null;
-  const ids: string[] = [];
-  for (const entry of list) {
-    const id = (entry as { id?: unknown } | null)?.id;
-    if (typeof id !== 'string' || !SERVICE_ID.test(id)) return null;
-    ids.push(id);
-  }
-  return ids;
 }

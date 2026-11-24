@@ -1,12 +1,11 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { readTimestampResponse } from 'zeitstempel';
+import { CLIENT_LIMITS, readTimestampResponse } from 'zeitstempel';
 import { trustedServices } from '../src/io/zeitstempel.ts';
 import {
   addAnchor,
   appendStamp,
   bytesToBase64,
-  bytesToBase64Url,
   hexToBytes,
   emptyBook,
   parseRelayList,
@@ -21,6 +20,7 @@ import { createRelayService, requestAnchor, type AnchorService } from '../src/io
 import { val } from './helpers.ts';
 
 const RELAY = 'https://relay.example';
+const bytesToBase64Url = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64url');
 const iso = (day: number, h = 8, m = 0) =>
   `2026-11-${String(day).padStart(2, '0')}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00.000Z`;
 
@@ -336,6 +336,37 @@ describe('the relay adapter', () => {
     });
   });
 
+  it('tries the next service when the network fails for one of them', async () => {
+    const seen: string[] = [];
+    const fn: typeof fetch = async (url) => {
+      seen.push(String(url));
+      if (String(url).endsWith('/v1/services')) return services('digicert', 'freetsa');
+      if (String(url).endsWith('/digicert')) throw new TypeError('Failed to fetch');
+      return json(200, answer({ serial: realSerial }));
+    };
+    const out = await createRelayService(RELAY, { fetch: fn }).anchor(PROBE_HASH);
+    expect(out.ok && out.value.tsaId).toBe('freetsa');
+    expect(seen).toHaveLength(3);
+  });
+
+  it('pauses after a 429 on the list of services as well', async () => {
+    let now = 1_000_000;
+    const r = relay(json(429, { error: 'rate-limited' }, { 'Retry-After': '30' }));
+    const service = createRelayService(RELAY, { fetch: r.fn, now: () => now });
+    expect(await service.anchor(PROBE_HASH)).toEqual({
+      ok: false,
+      reason: 'rate-limited',
+      detail: 'bitte in 30 s erneut versuchen',
+    });
+    const calls = r.seen.length;
+    now += 10_000;
+    expect(await service.anchor(PROBE_HASH)).toMatchObject({
+      reason: 'rate-limited',
+      detail: 'bitte in 20 s erneut versuchen',
+    });
+    expect(r.seen.length).toBe(calls);
+  });
+
   it('says unreachable when the network fails, with the reason', async () => {
     const service = createRelayService(RELAY, {
       fetch: async () => {
@@ -358,10 +389,7 @@ describe('the relay adapter', () => {
       });
     const r = await createRelayService(RELAY, { fetch: hang, timeoutMs: 20 }).anchor(PROBE_HASH);
     expect(r).toEqual({ ok: false, reason: 'unreachable', detail: 'Zeitüberschreitung' });
-    const source = readFileSync(new URL('../src/io/anchorService.ts', import.meta.url), 'utf8');
-    expect(Number(/timeoutMs \?\? ([\d_]+)/.exec(source)?.[1]?.replace(/_/g, ''))).toBeGreaterThan(
-      12_000,
-    );
+    expect(CLIENT_LIMITS.timeoutMs).toBeGreaterThan(12_000);
   });
 });
 

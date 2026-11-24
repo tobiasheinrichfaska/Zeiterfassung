@@ -180,7 +180,7 @@
       <tr><td>appendStamp / sealElapsedDays</td><td>(book, kind, date, nowIso) → Result&lt;TimeBook&gt; / (book, today, nowIso)</td><td>Einen Stempel anhängen (Uhr rückwärts: <code>skew</code>, voll: <code>too-many-stamps</code>); für jeden beendeten, abgelaufenen Tag ohne „seal“ genau einen anhängen</td></tr>
       <tr><td>dayContentHash / stampHash / chainHead / checkChain / compactStamps / stampsOfMonth</td><td>…</td><td>Hashes, Kettenkopf, Prüfung der ganzen Kette (<code>chain-broken</code>), Kürzen des alten Teils nach dem Löschen (nur Monate ohne Tage, die ein Anker abdeckt oder bei ausgeschaltetem Dienst)</td></tr>
       <tr><td>anchorStatus</td><td>(book, nowIso) → AnchorStatus</td><td>off (kein Dienst) | nothing (keine Stempel) | ok (alle abgedeckt) | due (ungestempelte Stempel, der älteste höchstens 24 Stunden alt) | overdue (älter), mit Zahlen</td></tr>
-      <tr><td>anchorRequest / addAnchor / anchorFromOutcome / parseRelayAnswer / parseServiceList</td><td>…</td><td>Was zu stempeln ist (Kopf der Kette), einen Anker streng prüfen und aufnehmen (<code>bad-anchor</code>, <code>anchor-skew</code>), Antwort des Weiterreichers streng lesen (<code>service</code>, <code>genTime</code>, <code>accuracyMs</code>, <code>serial</code>, <code>token</code> in Base64url)</td></tr>
+      <tr><td>anchorRequest / addAnchor / anchorFromOutcome</td><td>…</td><td>Was zu stempeln ist (Kopf der Kette), einen Anker streng prüfen und aufnehmen (<code>bad-anchor</code>, <code>anchor-skew</code>); die Antwort des Weiterreichers liest und prüft der Client der Bibliothek <code>zeitstempel</code> (<code>createRelayClient</code>)</td></tr>
       <tr><td>parseRelayList / relayUsable / relayOk</td><td>…</td><td>Die beim Bauen erlaubten Weiterreicher-Adressen aus <code>VITE_TIMESTAMP_RELAY</code></td></tr>
       <tr><td>changeEntry / addChanges / changesOfMonth / changedDates</td><td>…</td><td>Protokolleintrag bilden (nur für abgelaufene Tage mit geänderten Zeiten), anfügen (voll = <code>too-many-changes</code>, nie stilles Verwerfen), Einträge und Daten eines Monats</td></tr>
       <tr><td>changeText / describeSnapshot / willBeLogged</td><td>(entry) → ChangeText</td><td>Deutsche Texte für Monatsansicht und Bericht; ob eine Änderung protokolliert wird (für die Rückfrage)</td></tr>
@@ -280,7 +280,7 @@
       (<code>verifyTimestampToken</code> der Bibliothek, ohne Nonce) gegen den gesendeten Hash und die Wurzelzertifikate,
       die mit der App ausgeliefert werden (<code>anchors/*.pem</code> der Bibliothek, gebündelt). Gespeichert werden Zeit
       und Seriennummer <em>aus dem geprüften Token</em>, nicht die Angaben des Weiterreichers. Bei 429 wartet die App die
-      Zeit aus <code>Retry-After</code> ab; bei 502/504 nimmt sie den nächsten Dienst des Weiterreichers (höchstens drei).
+      Zeit aus <code>Retry-After</code> ab; bei 502/504 und bei einem Netzfehler nimmt sie den nächsten Dienst des Weiterreichers (höchstens drei); auch eine 429 auf die Dienstliste bremst.
       Die Prüfung stellt <em>nicht</em> fest, ob ein Zertifikat gesperrt wurde (siehe <code>docs/grenzen.md</code> der Bibliothek).
     </p>
     <h2>7 Werkseinstellungen</h2>

@@ -115,8 +115,6 @@ describe('docs/data-model.html against the code', () => {
       'anchorRequest',
       'addAnchor',
       'anchorFromOutcome',
-      'parseRelayAnswer',
-      'parseServiceList',
       'parseRelayList',
       'relayUsable',
       'relayOk',
