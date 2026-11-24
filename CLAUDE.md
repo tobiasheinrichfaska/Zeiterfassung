@@ -51,6 +51,11 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
   import from `zeitstempel` in `src/io/zeitstempel.ts`, and make `createRelayService` a thin adapter over
   `createRelayClient` (keep `AnchorService`, `AnchorOutcome` and the German texts; map the library's codes to
   them). Re-run `e2e/` afterwards.
+- **Running monthly PDF (decided 2026-11-24, not built yet):** one PDF per month, continued with
+  `pdf-fortschreiben`; at „Gehen“ (or at the next start if the app was closed or offline) the day's state is
+  appended as **a new page** (table up to that day) plus **a new JSON attachment with its own name** (add only),
+  then one document time stamp. Free services first (qualified later, only in the relay). The stamp chain
+  and `anchors` **both stay** as they are.
 - **Base library in a subdirectory (TEMPORARY):** `pdf-fortschreiben/` is a separate base library (incremental
   PDF revisions, PDF/A-3 attachments, PAdES document time stamps) with its own `package.json`, tests and CI job
   (`pdf-fortschreiben` in `tests.yml`); the app does **not** use it yet. It lives here only because the cloud
