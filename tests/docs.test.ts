@@ -140,6 +140,12 @@ describe('docs/data-model.html against the code', () => {
       'startRunningPdf',
       'appendRunningDay',
       'runningPdfState',
+      'runningPdfMonths',
+      'daysToAppend',
+      'runningPdfSlot',
+      'encodeRunningPdf',
+      'decodeRunningPdf',
+      'runningPdfLines',
       'bookUpTo',
     ];
     for (const name of documented) {

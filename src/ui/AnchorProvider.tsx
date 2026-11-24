@@ -87,6 +87,7 @@ export function AnchorProvider({ children }: { children: ReactNode }) {
   const api: AnchorApi = {
     status: anchorStatus(book, new Date().toISOString()),
     serviceAvailable,
+    service,
     busy,
     anchorNow,
     sealNow,

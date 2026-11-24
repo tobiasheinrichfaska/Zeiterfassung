@@ -26,6 +26,7 @@ PDF im Betrachter, andere Browser) — siehe `manual_tests/`.
 - [x] **Zeitstempel-Kette:** jede abgeschlossene Schreibaktion und jeder abgelaufene Tag wird verkettet; Bruch wird erkannt — `tests/stamps.test.ts`
 - [x] **Externe Anker:** Status (off/nothing/ok/due/overdue), strenge Aufnahme, Bericht mit Ankern und Token — `tests/anchors.test.ts`, `tests/report-stamps.test.ts`, `tests/anchor-service.test.ts` (echtes Relay-Protokoll, Token wird in der App geprüft: aufgezeichnetes echtes FreeTSA-Token, Manipulationen, 429, 502/504); Ende zu Ende in headless Chromium gegen ein lokales Relay mit Test-PKI (`e2e/`); **kein echter Dienst, kein aufgestelltes Relay**
 - [x] **Aufbewahrung:** nur exportierte Monate werden auf Bestätigung gelöscht — `tests/backup-retention.test.ts`
+- [x] **Laufendes Monats-PDF:** je beendetem Tag eine neue Seite und ein neuer Anhang (nur hinzufügen), danach ein Dokument-Zeitstempel; ohne Dienst oder bei Fehler bleibt der ungestempelte Stand gespeichert und wird gezeigt — `tests/running-pdf.test.ts`, `tests/running-plan.test.ts`, `tests/running-pdf-work.test.ts` (Tresor im Arbeitsspeicher, Stellvertreter-Dienst); **nicht im Browser geprüft** (MT-29 bis MT-31)
 
 | Path                                             | Impact                                      | Audit Check                                      |
 | ------------------------------------------------ | ------------------------------------------- | ------------------------------------------------ |

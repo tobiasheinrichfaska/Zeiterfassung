@@ -1,7 +1,7 @@
 // The one place that names where the Zeitstempel library (RFC 3161 reader, verifier and relay client) and
 // its data come from. The package comes by Git tag (built on install); its data files (`services.json`,
 // `anchors/*.pem`) are not in the package's exports, so they are read from the installed package by path.
-import { verifyTimestampToken, fromBase64Url, readServices } from 'zeitstempel';
+import { verifyTimestampToken, fromBase64Url, readServices, readToken } from 'zeitstempel';
 import servicesData from '../../node_modules/zeitstempel/services.json';
 
 export { verifyTimestampToken, fromBase64Url };
@@ -29,4 +29,13 @@ export function trustedServices(): Map<
     }
   }
   return out;
+}
+
+/** The time a token states (ISO, UTC), or null when it cannot be read. Not a verification. */
+export function tokenTime(token: Uint8Array): string | null {
+  try {
+    return new Date(readToken(token).info.genTime).toISOString();
+  } catch {
+    return null;
+  }
 }

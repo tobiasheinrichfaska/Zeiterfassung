@@ -19,6 +19,7 @@ export * from './texts.ts';
 export * from './view.ts';
 export * from './pdf.ts';
 export * from './runningPdf.ts';
+export * from './runningPlan.ts';
 export * from './files.ts';
 export * from './chars.ts';
 export * from './icc.ts';

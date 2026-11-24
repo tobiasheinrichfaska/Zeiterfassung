@@ -1,11 +1,14 @@
 import { createContext, useContext } from 'react';
 import type { AnchorStatus } from '../logic/index.ts';
+import type { AnchorService } from '../io/anchorService.ts';
 
 export interface AnchorApi {
   /** Where the chain stands against the external service (renewed every minute). */
   status: AnchorStatus;
   /** Whether this build can reach the service that is set up. */
   serviceAvailable: boolean;
+  /** The service itself (one client for the whole app, so a 429 pause holds for every caller). */
+  service: AnchorService | undefined;
   busy: boolean;
   /** Asks the service for a time stamp now; every failure is shown to the person. */
   anchorNow(): Promise<'anchor' | 'off' | 'nothing' | 'failed'>;

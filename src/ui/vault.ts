@@ -1,10 +1,13 @@
 import { createVault, type VaultConfig, type VaultEnvironment } from 'local-vault';
-import { BOOK_SLOT, DRAFT_SLOT } from '../logic/index.ts';
+import { BOOK_SLOT, DRAFT_SLOT, RUNNING_PDF_SLOTS } from '../logic/index.ts';
 
-/** The app's vault: prefix and slot are fixed for good (a changed prefix makes stored data unreadable). */
+/**
+ * The app's vault: prefix and slots are fixed for good (a changed prefix makes stored data unreadable).
+ * Besides the book and the draft: one slot per month for the running monthly PDF (`monatspdf-JJJJ-MM`).
+ */
 export const vaultConfig: VaultConfig = {
   prefix: 'zeiterfassung',
-  slots: [BOOK_SLOT, DRAFT_SLOT],
+  slots: [BOOK_SLOT, DRAFT_SLOT, ...RUNNING_PDF_SLOTS],
   texts: {
     title: 'Zeiterfassung',
     opening: 'Die Daten werden geöffnet …',

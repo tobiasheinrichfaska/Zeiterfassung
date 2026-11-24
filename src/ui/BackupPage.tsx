@@ -17,6 +17,7 @@ import {
 } from '../logic/index.ts';
 import { downloadFile, readFileText } from '../io/files.ts';
 import { useBookApi } from './bookContext.ts';
+import { useRunningPdf } from './runningPdfContext.ts';
 import { styles } from './styles.ts';
 
 const randomBytes = (length: number): Uint8Array => crypto.getRandomValues(new Uint8Array(length));
@@ -29,6 +30,7 @@ interface WaitingFile {
 
 export function BackupPage() {
   const { book, apply, showError } = useBookApi();
+  const runningPdf = useRunningPdf();
   const [info, setInfo] = useState<string | undefined>();
   const [encrypt, setEncrypt] = useState(true);
   const [password, setPassword] = useState('');
@@ -123,7 +125,11 @@ export function BackupPage() {
   const purge = () => {
     const names = report.purgeable.map(monthLabel).join(', ');
     if (!confirm(`Diese exportierten Monate jetzt von diesem Gerät löschen: ${names}?`)) return;
-    if (apply(okResult(purgeExpired(book, today)))) setInfo('Die Monate wurden gelöscht.');
+    if (!apply(okResult(purgeExpired(book, today)))) return;
+    // the running monthly PDFs of these months go with them
+    const refused = runningPdf.forget(report.purgeable);
+    if (refused !== undefined) return showError(refused);
+    setInfo('Die Monate wurden gelöscht.');
   };
 
   return (
