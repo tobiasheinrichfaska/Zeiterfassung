@@ -8,6 +8,17 @@
 > lege es sonst an (Schritt 1). Danach Schritte 2–8, jeweils mit PR; am Ende eine kurze Liste, was erledigt
 > ist und was offen blieb. Nichts taggen oder veröffentlichen ohne mein OK.
 
+**Zusätzlich (Tobias' OK liegt vor, 2026-11-24):** im Repo `zeitstempel` den Tag `v0.1.0` auf den
+Merge-Commit `a7a2db432019e16c31764751db2cfe05ddb456a9` setzen und pushen (die Cloud-Sitzung durfte keine Tags
+pushen). Geprüft: eine Installation dieses Commits per Git baut über `prepare` das `dist` und exportiert
+`createRelayClient`.
+
+```bash
+git -C <zeitstempel> fetch origin main
+git -C <zeitstempel> tag -a v0.1.0 a7a2db432019e16c31764751db2cfe05ddb456a9 -m "zeitstempel 0.1.0"
+git -C <zeitstempel> push origin v0.1.0
+```
+
 Kurz zum Stand: 0.0.1, nur Node-Tests, CI-Job `pdf-fortschreiben` in `Zeiterfassung` grün; Gegenprüfung
 (`npm run extern`) braucht `openssl`, `pdfsig` und Python (pyHanko, pikepdf in `.tmp/venv`). Auch das
 `Lohnarchiv` will PDFs mit `DocTimeStamp` stempeln: nach dem Herauslösen in dessen `CLAUDE.md` auf das neue

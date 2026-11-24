@@ -46,8 +46,9 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
   `src/io/zeitstempel.ts`.** The tarball URL works only while the repository is readable without a login.
 - **Pending switch to the library's relay client (Tobias 2026-11-24):** `zeitstempel` now has
   `createRelayClient` (same behaviour as `src/io/anchorService.ts`, plus fixes: 429 on the service list
-  pauses too, a network error tries the next service, `Retry-After` as a date) and gets a tag with a
-  `prepare` build. **Next step here:** switch `package.json` to `github:tobiasheinrichfaska/zeitstempel#<tag>`,
+  pauses too, a network error tries the next service, `Retry-After` as a date) and a `prepare` build
+  (merged as `a7a2db4`); the tag `v0.1.0` on that commit is approved but must be pushed from the PC
+  (see `pdf-fortschreiben/HERAUSLOESEN.md`). **Next step here:** switch `package.json` to `github:tobiasheinrichfaska/zeitstempel#<tag>`,
   import from `zeitstempel` in `src/io/zeitstempel.ts`, and make `createRelayService` a thin adapter over
   `createRelayClient` (keep `AnchorService`, `AnchorOutcome` and the German texts; map the library's codes to
   them). Re-run `e2e/` afterwards.
