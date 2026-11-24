@@ -1,6 +1,8 @@
 import type { Reason } from './model.ts';
 import type { AnchorStatus } from './anchors.ts';
-import { formatIsoDateTime } from './time.ts';
+import { formatIsoDate, formatIsoDateTime } from './time.ts';
+import { monthLabel } from './view.ts';
+import type { PdfSaveRequest, PdfSlotPlan } from './runningPlan.ts';
 
 /** German message for every error code (product text; the logic layer only returns codes). */
 export const REASON_TEXTS: Record<Reason, string> = {
@@ -82,4 +84,82 @@ export function anchorStatusText(s: AnchorStatus): string {
     case 'overdue':
       return `Überfällig: ${s.unanchored} Stempel sind älter als 24 Stunden und noch nicht extern gestempelt (der älteste von ${oldest}).`;
   }
+}
+
+/** Texts of the running monthly PDF (German). */
+export const RUNNING_PDF_TEXTS = {
+  noRelay:
+    'Kein externer Zeitstempeldienst eingerichtet: Der neueste Stand der laufenden Monatsdatei ist nicht gestempelt.',
+  stampFailed: 'Der neueste Stand der laufenden Monatsdatei ist nicht gestempelt',
+  tokenTooLarge: 'Das Token des Zeitstempeldienstes ist zu groß für den reservierten Platz.',
+  unreadable:
+    'Die gespeicherte laufende Monatsdatei ist nicht lesbar. Sie bleibt unverändert; es wird nichts angehängt.',
+  tooLarge:
+    'Die laufende Monatsdatei ist zu groß für den Speicher der App. Der neue Stand wurde nicht gespeichert, damit die Arbeitszeiten immer Platz haben. Bitte die gespeicherte Datei jetzt sichern.',
+  failed: 'Die laufende Monatsdatei konnte nicht fortgeschrieben werden',
+  releaseChanged:
+    'Die Monatsdatei in der App hat sich inzwischen geändert und wurde nicht entfernt. Bitte den neuesten Stand speichern.',
+} as const;
+
+/** Why a file must or should be saved, in one sentence. */
+export function saveRequestText(r: PdfSaveRequest, today: string): string {
+  const label = monthLabel(r.month);
+  switch (r.why) {
+    case 'previous':
+      return r.mode === 'forced'
+        ? `Die laufende Monatsdatei ${label} darf höchstens bis zum 7. des Folgemonats in der App bleiben. Bitte jetzt speichern.`
+        : `Der Monat ${label} ist vorbei. Bitte seine laufende Monatsdatei bis zum 7. ${monthLabel(today.slice(0, 7))} speichern; ab dem 8. fragt die App, bevor sie weiter benutzt werden kann.`;
+    case 'older':
+      return `Die laufende Monatsdatei ${label} ist älter als der Vormonat und gehört nicht mehr in die App. Bitte jetzt speichern.`;
+    case 'duplicate':
+      return `Die laufende Monatsdatei ${label} liegt zweimal in der App. Bitte diese zweite Datei speichern.`;
+    case 'too-large':
+      return `${RUNNING_PDF_TEXTS.tooLarge} (${label})`;
+    case 'legacy':
+      return `Eine laufende Monatsdatei ${label} einer früheren Fassung liegt noch in der App. Bitte speichern; sie wird nicht mehr fortgeschrieben.`;
+  }
+}
+
+/** The texts of the save prompt and the reminder (German). */
+export const SAVE_TEXTS = {
+  forcedTitle: 'Monatsdatei speichern',
+  forcedIntro:
+    'Monatsdateien werden außerhalb der App aufbewahrt. Bitte die Datei speichern (oder teilen) und danach bestätigen; erst dann geht es weiter. Stempeln bleibt möglich.',
+  reminderTitle: 'Monatsdatei bitte speichern',
+  saveButton: 'Speichern',
+  shareButton: 'Teilen …',
+  confirmButton: 'Gespeichert – aus der App entfernen',
+  confirmHint: 'Erst speichern oder teilen, dann bestätigen.',
+  laterButton: 'Später',
+  closeButton: 'Schließen',
+  gone: 'Diese Monatsdatei liegt nicht mehr in der App.',
+  confirmQuestion: (month: string) =>
+    `Ist die Datei für ${monthLabel(month)} sicher gespeichert (zum Beispiel per E-Mail an die Personalakte)? Danach ist sie nur noch dort, nicht mehr in der App.`,
+  saved: (name: string) => `Gespeichert als ${name} (Ordner „Downloads“).`,
+  shared: 'Die Datei wurde weitergegeben.',
+  removed: (month: string) =>
+    `Die laufende Monatsdatei ${monthLabel(month)} ist aus der App entfernt.`,
+  notStamped: 'Der neueste Stand dieser Datei ist noch nicht gestempelt.',
+  busy: 'Die Monatsdatei wird gerade fortgeschrieben …',
+  stampHeading: 'Stempeln',
+  savedOut: (at: string) =>
+    `Die laufende Monatsdatei dieses Monats wurde am ${formatIsoDate(at)} gespeichert und aus der App entfernt; sie wird nicht weitergeführt.`,
+} as const;
+
+/** Lines about the slots that are not about one file to save (German). */
+export function slotPlanNotes(plan: PdfSlotPlan): string[] {
+  const out: string[] = [];
+  if (plan.currentWaits)
+    out.push(
+      'Für den laufenden Monat ist kein Platz frei: Erst muss eine ältere Monatsdatei gespeichert werden. Die Arbeitszeiten gehen nicht verloren; die Seiten werden danach nachgeholt.',
+    );
+  if (plan.unreadable.length > 0)
+    out.push(
+      `${plan.unreadable.length} Speicherplatz/Speicherplätze für Monatsdateien sind nicht lesbar; sie bleiben unverändert.`,
+    );
+  for (const a of plan.ahead)
+    out.push(
+      `Eine Monatsdatei für ${monthLabel(a.month)} liegt in der App, obwohl dieser Monat noch nicht begonnen hat (Geräteuhr prüfen). Sie bleibt unverändert.`,
+    );
+  return out;
 }

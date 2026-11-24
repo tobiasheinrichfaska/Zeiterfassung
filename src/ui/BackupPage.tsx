@@ -122,12 +122,12 @@ export function BackupPage() {
     }
   };
 
-  const purge = () => {
+  const purge = async () => {
     const names = report.purgeable.map(monthLabel).join(', ');
     if (!confirm(`Diese exportierten Monate jetzt von diesem Gerät löschen: ${names}?`)) return;
     if (!apply(okResult(purgeExpired(book, today)))) return;
-    // the running monthly PDFs of these months go with them
-    const refused = runningPdf.forget(report.purgeable);
+    // running monthly PDFs of these months still in the app go with them
+    const refused = await runningPdf.forget(report.purgeable);
     if (refused !== undefined) return showError(refused);
     setInfo('Die Monate wurden gelöscht.');
   };
@@ -239,7 +239,7 @@ export function BackupPage() {
         {report.purgeable.length > 0 ? (
           <>
             <p>Fällig und exportiert: {report.purgeable.map(monthLabel).join(', ')}.</p>
-            <button type="button" style={styles.button} onClick={purge}>
+            <button type="button" style={styles.button} onClick={() => void purge()}>
               Fällige exportierte Monate löschen
             </button>
           </>

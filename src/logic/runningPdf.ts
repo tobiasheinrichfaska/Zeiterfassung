@@ -12,7 +12,16 @@
  * update, together with the attachment. Nothing else pdf-lib may have touched (e.g. `/Info`) is copied.
  */
 import fontkit from '@pdf-lib/fontkit';
-import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFString, type PDFObject } from 'pdf-lib';
+import {
+  CustomFontEmbedder,
+  PDFDict,
+  PDFDocument,
+  PDFFont,
+  PDFHexString,
+  PDFName,
+  PDFString,
+  type PDFObject,
+} from 'pdf-lib';
 import {
   PdfFile,
   PdfReadError,
@@ -20,10 +29,13 @@ import {
   attachFile,
   attachmentChanges,
   findDocTimeStamps,
+  isName,
+  name as pdfName,
   raw,
   readAttachments,
   writeUpdate,
   type AttachmentChange,
+  type PdfStream,
 } from 'pdf-fortschreiben';
 import { fail, ok, type DateKey, type MonthKey, type Result, type TimeBook } from './model.ts';
 import { canonicalJson } from './canonical.ts';
@@ -57,23 +69,42 @@ export const pdfDate = (iso: string): string =>
   `D:${iso.slice(0, 4)}${iso.slice(5, 7)}${iso.slice(8, 10)}${iso.slice(11, 13)}${iso.slice(14, 16)}${iso.slice(17, 19)}Z`;
 
 /**
- * Six capital letters for a font subset: a subset of another page is another subset, so it gets its own
- * tag (the PDF specification asks for distinct tags). `day` 0 is the title page.
+ * Small files (decision 2026-11-24): one font only, regular, embedded **once and complete** in the first
+ * revision (`/BaseFont /NotoSans-Regular`, every glyph, ToUnicode for every glyph); every day page uses
+ * that same font object, so a day adds no font data. Headings are drawn in the regular font too.
  */
-const subsetTag = (weight: 'R' | 'B', day: number): string =>
-  `ZE${weight}A${String.fromCharCode(65 + Math.floor(day / 10))}${String.fromCharCode(65 + (day % 10))}`;
+const SHARED_FONT = 'NotoSans-Regular';
 
-async function embedFonts(doc: PDFDocument, assets: PdfAssets, day: number) {
+/**
+ * The shared font of a loaded running PDF as a pdf-lib font that draws with the file's font object and is
+ * never embedded again (it is not registered with the document). Undefined in a file without it.
+ */
+async function sharedFont(doc: PDFDocument, assets: PdfAssets): Promise<PDFFont | undefined> {
+  for (const [ref, o] of doc.context.enumerateIndirectObjects()) {
+    if (
+      o instanceof PDFDict &&
+      o.get(PDFName.of('Type')) === PDFName.of('Font') &&
+      o.get(PDFName.of('Subtype')) === PDFName.of('Type0') &&
+      o.get(PDFName.of('BaseFont')) === PDFName.of(SHARED_FONT)
+    ) {
+      const embedder = await CustomFontEmbedder.for(fontkit, assets.fontRegular, SHARED_FONT);
+      return PDFFont.of(ref, doc, embedder);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The font of a day page: the shared one, or (in a file made before the shared font) a regular subset
+ * with its own tag for that day (a subset of another page is another subset; the PDF specification asks
+ * for distinct tags).
+ */
+async function dayFont(doc: PDFDocument, assets: PdfAssets, day: number): Promise<PDFFont> {
+  const shared = await sharedFont(doc, assets);
+  if (shared) return shared;
   doc.registerFontkit(fontkit);
-  const font = await doc.embedFont(assets.fontRegular, {
-    subset: true,
-    customName: `${subsetTag('R', day)}+NotoSans-Regular`,
-  });
-  const bold = await doc.embedFont(assets.fontBold, {
-    subset: true,
-    customName: `${subsetTag('B', day)}+NotoSans-Bold`,
-  });
-  return { font, bold };
+  const tag = `ZERA${String.fromCharCode(65 + Math.floor(day / 10))}${String.fromCharCode(65 + (day % 10))}`;
+  return doc.embedFont(assets.fontRegular, { subset: true, customName: `${tag}+${SHARED_FONT}` });
 }
 
 const SUBJECT = 'Laufende Monatsdatei Arbeitszeit';
@@ -114,8 +145,9 @@ export async function startRunningPdf(
   doc.setLanguage('de-DE');
   doc.setCreationDate(created);
   doc.setModificationDate(created);
-  const { font, bold } = await embedFonts(doc, assets, 0);
-  const w = pageWriter(doc, font, bold);
+  doc.registerFontkit(fontkit);
+  const font = await doc.embedFont(assets.fontRegular, { subset: false, customName: SHARED_FONT });
+  const w = pageWriter(doc, font, font);
   w.newPage();
   w.title(title);
   if (texts[1]) w.line(texts[1], 10);
@@ -242,6 +274,9 @@ function serialize(o: PDFObject): string {
   return latin1(buffer);
 }
 
+const isStream = (o: unknown): o is PdfStream =>
+  typeof o === 'object' && o !== null && (o as { t?: unknown }).t === 'stream';
+
 const isPagesNode = (o: PDFObject): o is PDFDict =>
   o instanceof PDFDict && o.get(PDFName.of('Type')) === PDFName.of('Pages');
 
@@ -304,8 +339,8 @@ export async function appendRunningDay(
   for (const [r, o] of context.enumerateIndirectObjects())
     if (isPagesNode(o)) treeBefore.set(r.objectNumber, serialize(o));
 
-  const { font, bold } = await embedFonts(doc, assets, Number(date.slice(8, 10)));
-  const w = pageWriter(doc, font, bold);
+  const font = await dayFont(doc, assets, Number(date.slice(8, 10)));
+  const w = pageWriter(doc, font, font);
   w.newPage();
   w.title(layout.title);
   if (layout.employee) {
@@ -315,7 +350,7 @@ export async function appendRunningDay(
   w.gap(6);
   w.table(layout.header, layout.rows);
   w.gap(8);
-  w.line(layout.total, 11, bold);
+  w.line(layout.total, 11);
   w.gap(4);
   if (layout.openNote) w.line(layout.openNote);
   w.changes('Nachträgliche Änderungen', layout.changes);
@@ -350,14 +385,32 @@ export async function appendRunningDay(
   if (treeChanged === 0) return fail('pdf-append-failed');
 
   try {
+    const data = new TextEncoder().encode(json.value);
+    const before = new Set(update.objects.keys());
     attachFile(file, update, {
       name: runningDayName(date),
-      data: new TextEncoder().encode(json.value),
+      data,
       mimeType: 'application/json',
-      description: `Maschinenlesbarer Stand bis ${date} zur Bestätigung der lesbaren Angaben. SHA-256: ${hash}`,
+      // the checksum is printed on the page; it is not repeated here
+      description: `Stand bis ${date}, maschinenlesbar`,
       modified: pdfDate(modified),
       relationship: 'Data',
     });
+    // the library writes the file uncompressed; it is stored with /FlateDecode instead (it reads both)
+    let compressed = 0;
+    for (const [num, o] of update.objects) {
+      if (before.has(num) || !isStream(o) || !isName(o.dict.entries.get('Type'), 'EmbeddedFile'))
+        continue;
+      const entries = new Map(o.dict.entries);
+      entries.set('Filter', pdfName('FlateDecode'));
+      update.objects.set(num, {
+        t: 'stream',
+        dict: { t: 'dict', entries },
+        data: context.flateStream(data).getContents(),
+      });
+      compressed += 1;
+    }
+    if (compressed !== 1) return fail('pdf-append-failed');
     return ok(writeUpdate(file, update).bytes);
   } catch {
     return fail('pdf-append-failed');

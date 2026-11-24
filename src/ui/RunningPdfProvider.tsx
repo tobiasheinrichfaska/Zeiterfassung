@@ -3,67 +3,85 @@ import type { Vault } from 'local-vault';
 import {
   clockFromDate,
   daysToAppend,
-  runningPdfMonths,
   type MonthKey,
   type PdfAssets,
+  type PdfSlotPlan,
   type RunningPdfInfo,
 } from '../logic/index.ts';
-import { readRunningInfo, updateRunningPdfs } from '../io/runningPdfWork.ts';
-import { deleteRunningPdf, readRunningPdf } from '../io/runningPdfStore.ts';
+import {
+  forgetPdfs,
+  pdfInSlot,
+  releasePdf,
+  updateRunningPdfs,
+  type RunningPdfRun,
+} from '../io/runningPdfWork.ts';
 import { useAnchoring } from './anchorContext.ts';
 import { useBookApi } from './bookContext.ts';
 import { pdfAssets } from './pdfAssets.ts';
 import { RunningPdfContext, type RunningPdfApi } from './runningPdfContext.ts';
+import { SavePrompt } from './SavePrompt.tsx';
 import { useLatest } from './useLatest.ts';
 
 /** While a state is unstamped, it is tried again this often (the same rhythm as the chain's anchors). */
 const RETRY_EVERY_MS = 15 * 60_000;
+/** The plan depends on the date (the 8th of a month): it is looked at again this often. */
+const PLAN_EVERY_MS = 60 * 60_000;
 
 let fonts: PdfAssets | undefined;
 const assets = (): PdfAssets => (fonts ??= pdfAssets());
 
 /**
- * Keeps the running monthly PDFs (previous and current month) up to date: at the start, after every
- * change of the book that ends a day („Gehen“, or a day entered in the form), when the time stamp service
- * becomes available, and every 15 minutes while a state is unstamped. Runs one after the other, never two
- * at once. A failure is kept with the month and shown on the month page; an appended day stays saved.
+ * Keeps the running monthly PDFs (in two slots: current month and, for at most a week, previous month)
+ * up to date: at the start (moving files of the earlier build once), after every change of the book that
+ * ends a day, when the time stamp service becomes available, every 15 minutes while a state is unstamped
+ * and every hour (the date may have changed). Runs one after the other, never two at once. Shows the
+ * save prompt (forced from the 8th, a reminder before) above the pages.
  */
 export function RunningPdfProvider({ vault, children }: { vault: Vault; children: ReactNode }) {
   const { book, getBook, showError } = useBookApi();
   const { service } = useAnchoring();
-  const [months, setMonths] = useState<Record<MonthKey, RunningPdfInfo>>({});
+  const [run, setRun] = useState<RunningPdfRun | undefined>();
   const [busy, setBusy] = useState(false);
-  const known = useLatest<Record<MonthKey, RunningPdfInfo>>({});
+  const known = useLatest<RunningPdfRun | undefined>(undefined);
   const latestService = useLatest(service);
   const queue = useRef<Promise<void>>(Promise.resolve());
   const queued = useRef(false);
+  const migrated = useRef(false);
 
   const take = useCallback(
-    (infos: readonly RunningPdfInfo[], gone: readonly MonthKey[] = []) => {
-      const next = Object.fromEntries(
-        Object.entries(known.get()).filter(([month]) => !gone.includes(month)),
-      );
-      for (const info of infos) next[info.month] = info;
+    (next: RunningPdfRun) => {
       known.set(next);
-      setMonths(next);
+      setRun(next);
+      if (next.problems.length > 0) showError(next.problems.join(' '));
     },
-    [known],
+    [known, showError],
   );
+
+  /** Runs `work` after the run going on (one at a time). */
+  const enqueue = useCallback(<T,>(work: () => Promise<T>): Promise<T> => {
+    const done = queue.current.then(work);
+    queue.current = done.then(
+      () => undefined,
+      () => undefined,
+    );
+    return done;
+  }, []);
 
   const refresh = useCallback(() => {
     if (queued.current) return; // the run waiting already reads the newest book when it starts
     queued.current = true;
-    queue.current = queue.current.then(async () => {
+    void enqueue(async () => {
       queued.current = false;
       setBusy(true);
       try {
+        const migrate = !migrated.current;
+        migrated.current = true;
         take(
-          await updateRunningPdfs(getBook(), {
-            vault,
-            assets,
-            service: latestService.get(),
-            now: () => new Date(),
-          }),
+          await updateRunningPdfs(
+            getBook(),
+            { vault, assets, service: latestService.get(), now: () => new Date() },
+            { migrate },
+          ),
         );
       } catch (error) {
         showError(
@@ -75,7 +93,7 @@ export function RunningPdfProvider({ vault, children }: { vault: Vault; children
         setBusy(false);
       }
     });
-  }, [getBook, vault, latestService, take, showError]);
+  }, [enqueue, getBook, vault, latestService, take, showError]);
 
   // at the start and whenever the service changes (set up, or another relay chosen)
   useEffect(() => {
@@ -83,53 +101,68 @@ export function RunningPdfProvider({ vault, children }: { vault: Vault; children
     refresh();
   }, [service, latestService, refresh]);
 
-  // a day that ended (or was entered) and is not in the file yet
+  // a day that ended (or was entered) and is not in its file yet
   useEffect(() => {
+    const last = known.get();
+    if (!last) return;
     const today = clockFromDate(new Date()).date;
-    const seen = known.get();
-    const due = runningPdfMonths(book, today, (m) => m in seen).some(
-      (m) => daysToAppend(book, m, seen[m]?.days ?? [], today).length > 0,
-    );
+    const due = [last.plan.previous, last.plan.current].some((use) => {
+      if (!use) return false;
+      const info = last.infos.find((i) => i.month === use.month);
+      return daysToAppend(book, use.month, info?.days ?? [], today).length > 0;
+    });
     if (due) refresh();
   }, [book, known, refresh]);
 
   useEffect(() => {
     const id = setInterval(() => {
-      const today = clockFromDate(new Date()).date;
-      const seen = known.get();
-      const unstamped = runningPdfMonths(getBook(), today, (m) => m in seen).some(
-        (m) => seen[m] !== undefined && !seen[m].newestStamped && seen[m].days.length > 0,
-      );
-      if (unstamped) refresh();
+      const last = known.get();
+      if (last?.infos.some((i) => !i.newestStamped && i.days.length > 0 && !i.tooLarge)) refresh();
     }, RETRY_EVERY_MS);
-    return () => clearInterval(id);
-  }, [known, refresh, getBook]);
+    const hourly = setInterval(refresh, PLAN_EVERY_MS);
+    return () => {
+      clearInterval(id);
+      clearInterval(hourly);
+    };
+  }, [known, refresh]);
+
+  const months = useMemo(
+    () =>
+      Object.fromEntries((run?.infos ?? []).map((i) => [i.month, i])) as Record<
+        MonthKey,
+        RunningPdfInfo
+      >,
+    [run],
+  );
+  const plan: PdfSlotPlan | undefined = run?.plan;
 
   const api = useMemo<RunningPdfApi>(
     () => ({
       months,
+      plan,
+      saved: run?.saved ?? [],
       busy,
       refresh,
-      file: (month) => {
-        const read = readRunningPdf(vault, month);
-        return read.kind === 'pdf' ? read.pdf : undefined;
+      file: (slot) => pdfInSlot(vault, slot),
+      release: async (slot, month, savedLength) => {
+        const refused = await enqueue(() =>
+          releasePdf(vault, slot, month, savedLength, new Date().toISOString()),
+        );
+        refresh();
+        return refused;
       },
-      forget: (gone) => {
-        for (const month of gone) {
-          const refused = deleteRunningPdf(vault, month);
-          if (refused !== undefined) return refused;
-        }
-        take([], gone);
-        return undefined;
-      },
-      look: (month) => {
-        if (month in known.get()) return;
-        void readRunningInfo(vault, month).then((info) => {
-          if (info && !(month in known.get())) take([info]);
-        });
+      forget: async (gone) => {
+        const refused = await enqueue(() => forgetPdfs(vault, gone));
+        refresh();
+        return refused;
       },
     }),
-    [months, busy, refresh, vault, take, known],
+    [months, plan, run, busy, refresh, vault, enqueue],
   );
-  return <RunningPdfContext.Provider value={api}>{children}</RunningPdfContext.Provider>;
+  return (
+    <RunningPdfContext.Provider value={api}>
+      {children}
+      <SavePrompt />
+    </RunningPdfContext.Provider>
+  );
 }

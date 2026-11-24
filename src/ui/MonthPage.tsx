@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   LOG_NOTICE,
   anchorStatusText,
@@ -23,6 +23,7 @@ import {
   rowTexts,
   runningPdfFileName,
   runningPdfLines,
+  SAVE_TEXTS,
   shiftMonth,
   type WorkdayInput,
   willBeLogged,
@@ -60,13 +61,12 @@ export function MonthPage() {
   const editingDay = editing === undefined ? undefined : book.days[editing];
 
   const running = runningPdf.months[month];
-  const { look } = runningPdf;
-  useEffect(() => look(month), [look, month]);
+  const savedOut = runningPdf.saved.find((s) => s.month === month);
 
   /** Saves or shares the running monthly PDF as it is stored (nothing is added on the way). */
   const saveRunning = async (share: boolean) => {
-    const pdf = runningPdf.file(month);
-    if (!pdf) return showError('Für diesen Monat gibt es keine laufende Monatsdatei.');
+    const pdf = running ? runningPdf.file(running.slot) : undefined;
+    if (!pdf) return showError(SAVE_TEXTS.gone);
     const name = runningPdfFileName(month);
     try {
       if (share) {
@@ -369,8 +369,11 @@ export function MonthPage() {
         <p>
           Nach jedem „Gehen“ (oder beim nächsten Start) bekommt die Monatsdatei eine neue Seite mit
           dem Stand bis zu diesem Tag und einen neuen Anhang; danach wird der neue Stand extern
-          gestempelt. Frühere Seiten werden nie geändert.
+          gestempelt. Frühere Seiten werden nie geändert. Die App behält nur die Datei des laufenden
+          Monats und, bis zum 7. des Folgemonats, die des Vormonats; danach muss sie gespeichert
+          werden (zum Beispiel für die Personalakte).
         </p>
+        {savedOut && !running && <p>{SAVE_TEXTS.savedOut(savedOut.at)}</p>}
         <ul role="status">
           {runningPdfLines(running).map((line) => (
             <li key={line}>{line}</li>

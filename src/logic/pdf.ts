@@ -124,11 +124,21 @@ export function monthLayout(
 
 /** Text is always painted in DeviceRGB black: the PDF/A output intent is an RGB profile. */
 const BLACK = rgb(0, 0, 0);
+/** The font each page has selected: a page names a font in its resources once, not per line. */
+const pageFont = new WeakMap<PDFPage, PDFFont>();
 const drawBlack = (
   page: PDFPage,
   text: string,
-  options: Parameters<PDFPage['drawText']>[1],
-): void => page.drawText(text, { ...options, color: BLACK });
+  { font, ...options }: NonNullable<Parameters<PDFPage['drawText']>[1]> & { font: PDFFont },
+): void => {
+  // pdf-lib adds a new resource key each time a font is passed to drawText (and again to restore
+  // the previous one); selecting it only when it changes keeps the page's resources small
+  if (pageFont.get(page) !== font) {
+    page.setFont(font);
+    pageFont.set(page, font);
+  }
+  page.drawText(text, { ...options, color: BLACK });
+};
 
 const A4 = { width: 595.28, height: 841.89 };
 const MARGIN = 40;

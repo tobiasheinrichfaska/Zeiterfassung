@@ -7,8 +7,10 @@ import {
   readAttachments,
 } from 'pdf-fortschreiben';
 import {
+  PDF_SLOT_LIMIT,
   addChanges,
   appendRunningDay,
+  encodeRunningPdf,
   bookUpTo,
   monthToJson,
   runningDayLayout,
@@ -171,9 +173,16 @@ describe('running monthly PDF', () => {
       'Summe Arbeitszeit bis Mi 04.11.2026: 19:30 Std. an 3 Tag(en)',
     );
 
-    // size: about 15 KB to start, about 18 KB per day (page, two font subsets, attachment, 1 KB stamp reserve)
-    expect(sizes[0]).toBeLessThan(25_000);
-    for (let i = 1; i < sizes.length; i++) expect(sizes[i]! - sizes[i - 1]!).toBeLessThan(30_000);
+    // size: about 26 KB to start (the one complete font), then a few KB per day (page, compressed
+    // attachment, no font data) plus the stamp (1 KB reserve here, written as hex)
+    expect(sizes[0]).toBeLessThan(30_000);
+    for (let i = 1; i < sizes.length; i++) expect(sizes[i]! - sizes[i - 1]!).toBeLessThan(8_000);
+    // one font object for the whole file, no font per day; the day attachments are compressed
+    const text = new TextDecoder('latin1').decode(pdf);
+    expect(text.match(/\/Type \/FontDescriptor\b/g)).toHaveLength(1);
+    expect(text.match(/\/BaseFont \/NotoSans-Regular\b/g)?.length).toBeGreaterThan(0);
+    expect(text).not.toContain('NotoSans-Bold');
+    expect(text).not.toContain('"changes"'); // no attachment is stored as plain JSON
   }, 30_000);
 
   it('refuses the same day twice, a running day, another month, a missing day and a foreign PDF', async () => {
@@ -260,4 +269,42 @@ describe('runningDayLayout and bookUpTo', () => {
       reason: 'bad-date',
     });
   });
+
+  it('a month of 22 days with a 6 KB token after each day stays well below the slot limit', async () => {
+    const dates: string[] = [];
+    for (let d = 1; dates.length < 22; d++) {
+      // November 2026 has 21 weekdays: one Saturday is worked as well
+      const weekday = new Date(2026, 10, d).getDay();
+      if (weekday !== 0 && (weekday !== 6 || d === 7))
+        dates.push(`2026-11-${String(d).padStart(2, '0')}`);
+    }
+    const book = val(
+      updateSettings(
+        bookWith(...dates.map((date, i) => day({ date, note: i % 3 === 0 ? 'Besprechung' : '' }))),
+        { employeeLabel: 'Erika Muster', retentionMonths: 24, timestampRelay: '' },
+      ),
+    );
+    const token = new Uint8Array(6000);
+    token.set([0x04, 0x82, (6000 - 4) >> 8, (6000 - 4) & 255]);
+    let pdf = val(await startRunningPdf(book, '2026-11', ASSETS, { createdIso: START }));
+    const start = pdf.length;
+    let pages = 0;
+    let stamps = 0;
+    for (const date of dates) {
+      const before = pdf.length;
+      pdf = val(await appendRunningDay(pdf, book, date, ASSETS, at(date)));
+      pages += pdf.length - before;
+      const unstamped = pdf.length;
+      pdf = await appendDocTimeStamp(pdf, async () => token, { reserve: 8192 });
+      stamps += pdf.length - unstamped;
+    }
+    // measured 2026-11-24: start 26 KB (the one complete font), about 4 KB per day, 18 KB per stamp
+    // (the reserve of 8192 bytes is written as 16384 hex digits); before: 15 KB, 22 KB, 18 KB
+    expect(start).toBeLessThan(30_000);
+    expect(pages / dates.length).toBeLessThan(6_000);
+    expect(stamps / dates.length).toBeLessThan(19_000);
+    expect(pdf.length).toBeLessThan(560_000);
+    expect(encodeRunningPdf(pdf).length).toBeLessThan(PDF_SLOT_LIMIT * 0.65);
+    expect(val(await runningPdfState(pdf)).days).toEqual(dates);
+  }, 120_000);
 });
