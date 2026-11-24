@@ -25,11 +25,9 @@ Kurz zum Stand: 0.0.1, nur Node-Tests, CI-Job `pdf-fortschreiben` in `Zeiterfass
 Repo verweisen (dort steht schon ein Hinweis).
 
 Diese Bibliothek liegt nur vorläufig im Repo `Zeiterfassung`, weil die Cloud-Sitzung kein Repo anlegen
-konnte (2026-11-24). **Beim nächsten Mal am PC herauslösen.** Name: Arbeitsname `pdf-fortschreiben` –
-Tobias bestätigt den Namen und die Sichtbarkeit (öffentlich, AGPLv3 + kommerziell wie die anderen
-Basis-Repos), bevor das Repo angelegt wird.
+konnte (2026-11-24). Name und Sichtbarkeit stehen im Auftrag oben.
 
-1. **Repo anlegen** (Tobias oder mit seinem OK): `tobiasheinrichfaska/pdf-fortschreiben`, leer, ohne README.
+1. **Repo anlegen:** `tobiasheinrichfaska/pdf-fortschreiben`, leer, ohne README.
 2. **Verlauf mitnehmen** (im Checkout von `Zeiterfassung`, Stand `main`, nachdem der PR gemergt ist):
    ```bash
    git subtree split --prefix=pdf-fortschreiben -b export/pdf-fortschreiben
