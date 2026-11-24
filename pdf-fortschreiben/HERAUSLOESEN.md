@@ -1,5 +1,18 @@
 # Herauslösen in ein eigenes Repo (Anweisung für Claude am PC)
 
+## Auftrag an Claude am PC (von Tobias, 2026-11-24)
+
+> Löse die Bibliothek `pdf-fortschreiben` aus dem Repo `Zeiterfassung` in ein eigenes Repo heraus, mit
+> Verlauf, nach den Schritten unten. Name `pdf-fortschreiben`, **öffentlich**, Lizenz AGPLv3 + kommerziell
+> wie die anderen Basis-Repos. Frag mich vor dem Anlegen des Repos nur, falls dir der Name nicht passt;
+> lege es sonst an (Schritt 1). Danach Schritte 2–8, jeweils mit PR; am Ende eine kurze Liste, was erledigt
+> ist und was offen blieb. Nichts taggen oder veröffentlichen ohne mein OK.
+
+Kurz zum Stand: 0.0.1, nur Node-Tests, CI-Job `pdf-fortschreiben` in `Zeiterfassung` grün; Gegenprüfung
+(`npm run extern`) braucht `openssl`, `pdfsig` und Python (pyHanko, pikepdf in `.tmp/venv`). Auch das
+`Lohnarchiv` will PDFs mit `DocTimeStamp` stempeln: nach dem Herauslösen in dessen `CLAUDE.md` auf das neue
+Repo verweisen (dort steht schon ein Hinweis).
+
 Diese Bibliothek liegt nur vorläufig im Repo `Zeiterfassung`, weil die Cloud-Sitzung kein Repo anlegen
 konnte (2026-11-24). **Beim nächsten Mal am PC herauslösen.** Name: Arbeitsname `pdf-fortschreiben` –
 Tobias bestätigt den Namen und die Sichtbarkeit (öffentlich, AGPLv3 + kommerziell wie die anderen
