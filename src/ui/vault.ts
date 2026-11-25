@@ -1,16 +1,23 @@
 import { createVault, type VaultConfig, type VaultEnvironment } from 'local-vault';
-import { BOOK_SLOT, DRAFT_SLOT, LEGACY_PDF_SLOTS, PDF_SLOTS } from '../logic/index.ts';
+import {
+  BOOK_SLOT,
+  DEVICE_KEY_SLOT,
+  DRAFT_SLOT,
+  LEGACY_PDF_SLOTS,
+  PDF_SLOTS,
+} from '../logic/index.ts';
 
 /**
  * The app's vault: prefix and slots are fixed for good (a changed prefix makes stored data unreadable).
  * Besides the book and the draft: two slots for the running monthly PDFs (`monatspdf-a`, `monatspdf-b`:
  * current and previous month). The per-month slots of the earlier build (`monatspdf-JJJJ-MM`) stay declared
  * only so that a file stored there can be read, moved or saved, and emptied (`local-vault` reads only
- * declared slots, and binds each slot's encryption to its name); nothing new is written there.
+ * declared slots, and binds each slot's encryption to its name); nothing new is written there. The slot
+ * `geraeteschluessel` holds the device key for the time stamp relay (never in plain browser storage).
  */
 export const vaultConfig: VaultConfig = {
   prefix: 'zeiterfassung',
-  slots: [BOOK_SLOT, DRAFT_SLOT, ...PDF_SLOTS, ...LEGACY_PDF_SLOTS],
+  slots: [BOOK_SLOT, DRAFT_SLOT, DEVICE_KEY_SLOT, ...PDF_SLOTS, ...LEGACY_PDF_SLOTS],
   texts: {
     title: 'Zeiterfassung',
     opening: 'Die Daten werden geöffnet …',

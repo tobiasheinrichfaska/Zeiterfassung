@@ -5,6 +5,7 @@ import { useBookApi } from './bookContext.ts';
 import { styles } from './styles.ts';
 import { ALLOWED_RELAYS } from './relayConfig.ts';
 import { vault } from './vault.ts';
+import { DeviceKeySettings } from './DeviceKeySettings.tsx';
 
 export function SettingsPage() {
   const { book, apply, showError } = useBookApi();
@@ -98,6 +99,7 @@ export function SettingsPage() {
         </button>
         {saved && <p role="status">Gespeichert.</p>}
       </form>
+      <DeviceKeySettings />
       <LockSettings vault={vault} />
     </div>
   );

@@ -19,11 +19,37 @@ export interface AnchorService {
   anchor(hashHex: string): Promise<AnchorOutcome>;
 }
 
+/**
+ * The device key for the authenticated relay (`X-Zeitstempel-Auth`): a non-extractable `CryptoKey` (the app)
+ * or PKCS#8 bytes (tests), and its key id in the relay's key file.
+ */
+export interface DeviceAuth {
+  privateKey: CryptoKey | Uint8Array;
+  keyId: string;
+}
+
+/**
+ * Deadline of one call. The authenticated relay waits up to `RELAY_MAX_WAIT_MS` (30 s) for its turn at the
+ * service, then up to about 17 s for body, service and check (47 s in single operation, more in collecting
+ * operation): 80 s covers both with room.
+ */
+export const RELAY_TIMEOUT_MS = 80_000;
+
+/** How far before the sending a token's time may lie (the relay's own `genTimeSlackMs`, clock differences). */
+export const FRESHNESS_SLACK_MS = 60_000;
+
 /** What the adapter needs from the outside; all of it can be replaced in tests. */
 export interface RelayOptions {
   fetch?: typeof fetch;
-  /** Deadline of one call. The relay itself waits up to 10 s for the service: stay well above. */
+  /** Deadline of one call; default `RELAY_TIMEOUT_MS`. */
   timeoutMs?: number;
+  /** The device key; without it requests go unsigned (only a relay started with `RELAY_AUTH=off` takes them). */
+  auth?: DeviceAuth;
+  /**
+   * Wall clock (ms since the epoch): time in the signed header, a `Retry-After` date, and the freshness of a
+   * token (not before sending − 60 s, not after now + 5 min). Default `Date.now()`.
+   */
+  wallNow?: () => number;
   /**
    * Milliseconds on a clock for the pause after a 429. Default: the monotonic `performance.now()`, which a
    * change of the device clock does not move (a clock set back must not stretch the pause).
@@ -43,6 +69,7 @@ const VERIFY_TEXTS: Partial<Record<Reason, string>> = {
   'message-digest-mismatch': 'der Inhalt des Tokens wurde verändert',
   malformed: 'das Token ist nicht lesbar',
   'unsupported-signature': 'Signaturverfahren nicht unterstützt (kein WebCrypto?)',
+  'time-too-old': 'die bestätigte Zeit liegt vor der Anfrage (rückdatiert)',
 };
 
 /** The library's English detail `status 502, upstream-failed` as the app's German `Status 502, …`. */
@@ -81,6 +108,16 @@ function outcomeOf(failure: { reason: Reason; detail?: string }): AnchorOutcome 
       );
     case 'bad-hash':
       return no('bad-response', 'Hash');
+    case 'relay-unauthorized':
+      return no(
+        'unauthorized',
+        /solo-not-allowed/.test(detail ?? '')
+          ? 'Status 403, Schlüssel ohne Solo-Erlaubnis'
+          : statusDetail(detail),
+      );
+    case 'bad-key':
+    case 'bad-key-id':
+      return no('unauthorized', 'Schlüssel nicht verwendbar');
     default:
       return no('not-verified', VERIFY_TEXTS[reason] ?? reason);
   }
@@ -96,20 +133,42 @@ function outcomeOf(failure: { reason: Reason; detail?: string }): AnchorOutcome 
  */
 export function createRelayService(base: string, options: RelayOptions = {}): AnchorService {
   const doFetch = options.fetch ?? ((input, init) => fetch(input, init));
+  const wallNow = options.wallNow ?? (() => Date.now());
+  const verifyToken = options.verify ?? verifyTimestampToken;
+  /** Start times (wall clock) of the calls going on; a token must not be older than the earliest − 60 s. */
+  const sending: number[] = [];
   const client = createRelayClient({
     relay: base,
     fetch: ((url, init) => doFetch(url, init as RequestInit)) as FetchLike,
     now: options.now ?? (() => performance.now()),
-    wallNow: () => Date.now(),
+    wallNow,
     trusted: new Map([...(options.trusted ?? trustedServices())].map(([id, s]) => [id, s.anchors])),
-    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
-    ...(options.verify ? { verify: options.verify } : {}),
+    timeoutMs: options.timeoutMs ?? RELAY_TIMEOUT_MS,
+    // always one stamp of exactly this hash: a token of a collecting relay would stamp a tree's root, which
+    // is no PAdES document time stamp of the PDF (its imprint must be the digest of the byte range)
+    mode: 'solo',
+    ...(options.auth ? { auth: options.auth } : {}),
+    // freshness: the library's client checks no token age itself (`minGenTime`), so the app adds it
+    verify: (token, hash, anchors) =>
+      verifyToken(token, hash, anchors, {
+        now: new Date(wallNow()),
+        minGenTime: new Date(
+          (sending.length > 0 ? Math.min(...sending) : wallNow()) - FRESHNESS_SLACK_MS,
+        ),
+      }),
   });
   return {
     async anchor(hashHex) {
       const hash = hexToBytes(hashHex);
       if (!hash) return { ok: false, reason: 'bad-response', detail: 'Hash' };
-      const stamped = await client.stamp(hash);
+      const started = wallNow();
+      sending.push(started);
+      let stamped;
+      try {
+        stamped = await client.stamp(hash);
+      } finally {
+        sending.splice(sending.indexOf(started), 1);
+      }
       if (!stamped.ok) return outcomeOf(stamped);
       const { serviceId, token, genTime, serial } = stamped.value;
       return { ok: true, value: { tsaId: serviceId, token, genTime, serial } };

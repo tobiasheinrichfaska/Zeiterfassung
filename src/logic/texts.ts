@@ -57,6 +57,12 @@ export const REASON_TEXTS: Record<Reason, string> = {
     'Der Tag läuft noch. Er wird erst nach „Gehen“ in die laufende Monatsdatei geschrieben.',
   'pdf-append-failed':
     'Die laufende Monatsdatei konnte nicht fortgeschrieben werden. Die bisherige Datei bleibt unverändert.',
+  'device-key-format':
+    'Der Geräteschlüssel hat nicht die erwartete Form: Kennung, ein Punkt, dann der Schlüssel (ohne Leerzeichen).',
+  'device-key-id':
+    'Die Kennung vor dem Punkt ist ungültig (Kleinbuchstaben, Ziffern und Bindestrich, mit einem Buchstaben am Anfang, höchstens 32 Zeichen).',
+  'device-key-unusable':
+    'Dieser Geräteschlüssel lässt sich nicht verwenden (kein ECDSA-Schlüssel auf P-256).',
 };
 
 /** Text for a code; falls back to the code itself so an error is never silent. */

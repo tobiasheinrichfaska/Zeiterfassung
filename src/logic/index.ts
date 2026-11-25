@@ -21,5 +21,6 @@ export * from './pdf.ts';
 export * from './runningPdf.ts';
 export * from './runningPlan.ts';
 export * from './files.ts';
+export * from './deviceKey.ts';
 export * from './chars.ts';
 export * from './icc.ts';

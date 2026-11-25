@@ -227,7 +227,10 @@ export type Reason =
   | 'wrong-month'
   | 'day-in-pdf'
   | 'day-running'
-  | 'pdf-append-failed';
+  | 'pdf-append-failed'
+  | 'device-key-format'
+  | 'device-key-id'
+  | 'device-key-unusable';
 
 export type Result<T> = { ok: true; value: T } | { ok: false; reason: Reason };
 

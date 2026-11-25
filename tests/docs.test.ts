@@ -48,6 +48,9 @@ const REASONS: Record<Reason, true> = {
   'day-in-pdf': true,
   'day-running': true,
   'pdf-append-failed': true,
+  'device-key-format': true,
+  'device-key-id': true,
+  'device-key-unusable': true,
 };
 
 describe('docs/data-model.html against the code', () => {

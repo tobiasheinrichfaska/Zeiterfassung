@@ -16,7 +16,12 @@ import {
   type AnchorOutcome,
   type TimeBook,
 } from '../src/logic/index.ts';
-import { createRelayService, requestAnchor, type AnchorService } from '../src/io/anchorService.ts';
+import {
+  createRelayService,
+  requestAnchor,
+  type AnchorService,
+  type RelayOptions,
+} from '../src/io/anchorService.ts';
 import { val } from './helpers.ts';
 
 const RELAY = 'https://relay.example';
@@ -90,6 +95,11 @@ describe('the trust anchors shipped with the app', () => {
 });
 
 describe('the relay adapter', () => {
+  /** The recorded token was made at 2026-11-23T13:05:56Z: the adapter's wall clock stands just after it. */
+  const TOKEN_WALL = Date.parse('2026-11-23T13:06:00.000Z');
+  const relayService = (base: string, options: RelayOptions = {}) =>
+    createRelayService(base, { wallNow: () => TOKEN_WALL, ...options });
+
   const answer = (over: Record<string, unknown> = {}) => ({
     service: 'freetsa',
     genTime: '2026-11-23T13:05:56.000Z',
@@ -128,7 +138,7 @@ describe('the relay adapter', () => {
 
   it('asks for the services, then posts only the hash, without cookies, referrer or redirects, and verifies', async () => {
     const r = relay(services('freetsa'), json(200, answer({ serial: realSerial })));
-    const out = await createRelayService(RELAY + '/', { fetch: r.fn }).anchor(PROBE_HASH);
+    const out = await relayService(RELAY + '/', { fetch: r.fn }).anchor(PROBE_HASH);
     expect(out.ok && out.value).toMatchObject({ tsaId: 'freetsa', serial: realSerial });
     expect(out.ok && out.value.genTime).toMatch(/^\d{4}-\d\d-\d\dT/);
     expect(out.ok && [...out.value.token]).toEqual([...TOKEN]);
@@ -150,6 +160,7 @@ describe('the relay adapter', () => {
     // only the hash leaves: 32 bytes as Base64url without padding
     expect(JSON.parse(String(r.seen[1]!.init.body))).toEqual({
       hash: bytesToBase64Url(hexToBytes(PROBE_HASH)!),
+      mode: 'solo',
     });
     expect(String(r.seen[1]!.init.body)).not.toMatch(/=/);
   });
@@ -159,7 +170,7 @@ describe('the relay adapter', () => {
       services('freetsa'),
       json(200, answer({ serial: realSerial, genTime: '2030-01-01T00:00:00.000Z' })),
     );
-    const out = await createRelayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH);
+    const out = await relayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH);
     expect(out.ok && out.value.genTime).not.toContain('2030');
   });
 
@@ -170,9 +181,7 @@ describe('the relay adapter', () => {
       trusted?: Map<string, { anchors: string[] }>,
     ) => {
       const r = relay(services('freetsa'), json(200, answer({ serial: realSerial, ...over })));
-      return createRelayService(RELAY, { fetch: r.fn, ...(trusted ? { trusted } : {}) }).anchor(
-        hash,
-      );
+      return relayService(RELAY, { fetch: r.fn, ...(trusted ? { trusted } : {}) }).anchor(hash);
     };
     // the token was made for „probe“, the app stamped something else
     expect(await run('ab'.repeat(32), {})).toMatchObject({
@@ -213,11 +222,11 @@ describe('the relay adapter', () => {
 
   it('ignores services of the relay it has no anchors for, and says so when none is left', async () => {
     const r = relay(services('unknown', 'freetsa'), json(200, answer({ serial: realSerial })));
-    const out = await createRelayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH);
+    const out = await relayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH);
     expect(out.ok).toBe(true);
     expect(r.seen[1]!.url).toBe('https://relay.example/v1/stamp/freetsa');
     expect(
-      await createRelayService(RELAY, { fetch: relay(services('unknown')).fn }).anchor(PROBE_HASH),
+      await relayService(RELAY, { fetch: relay(services('unknown')).fn }).anchor(PROBE_HASH),
     ).toMatchObject({
       ok: false,
       reason: 'refused',
@@ -231,7 +240,7 @@ describe('the relay adapter', () => {
       json(504, { error: 'upstream-timeout' }),
       json(502, { error: 'upstream-invalid', reason: 'x' }),
     );
-    const out = await createRelayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH);
+    const out = await relayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH);
     expect(out).toEqual({
       ok: false,
       reason: 'unreachable',
@@ -243,7 +252,7 @@ describe('the relay adapter', () => {
       json(504, { error: 'upstream-timeout' }),
       json(200, answer({ serial: realSerial })),
     );
-    expect((await createRelayService(RELAY, { fetch: ok.fn }).anchor(PROBE_HASH)).ok).toBe(true);
+    expect((await relayService(RELAY, { fetch: ok.fn }).anchor(PROBE_HASH)).ok).toBe(true);
   });
 
   it('pauses after 429 until Retry-After has passed, without asking the relay meanwhile', async () => {
@@ -253,7 +262,7 @@ describe('the relay adapter', () => {
       json(429, { error: 'rate-limited' }, { 'Retry-After': '30' }),
       json(200, answer({ serial: realSerial })),
     );
-    const service = createRelayService(RELAY, { fetch: r.fn, now: () => now });
+    const service = relayService(RELAY, { fetch: r.fn, now: () => now });
     expect(await service.anchor(PROBE_HASH)).toEqual({
       ok: false,
       reason: 'rate-limited',
@@ -278,7 +287,7 @@ describe('the relay adapter', () => {
       json(429, {}, { 'Retry-After': '30' }),
       json(200, answer({ serial: realSerial })),
     );
-    const service = createRelayService(RELAY, { fetch: r.fn, now: () => now });
+    const service = relayService(RELAY, { fetch: r.fn, now: () => now });
     expect((await service.anchor(PROBE_HASH)).ok).toBe(false);
     now -= 3 * 3_600_000; // the device clock is set back by three hours
     const again = await service.anchor(PROBE_HASH);
@@ -293,7 +302,7 @@ describe('the relay adapter', () => {
       ['99999', 3600],
     ] as const) {
       const r = relay(services('freetsa'), json(429, {}, header ? { 'Retry-After': header } : {}));
-      const out = await createRelayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH);
+      const out = await relayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH);
       expect(out, String(header)).toMatchObject({
         reason: 'rate-limited',
         detail: `bitte in ${expected} s erneut versuchen`,
@@ -303,34 +312,32 @@ describe('the relay adapter', () => {
 
   it('says refused for other error statuses (with the relay’s code), also for the list', async () => {
     const stamp = relay(services('freetsa'), json(400, { error: 'bad-hash' }));
-    expect(await createRelayService(RELAY, { fetch: stamp.fn }).anchor(PROBE_HASH)).toEqual({
+    expect(await relayService(RELAY, { fetch: stamp.fn }).anchor(PROBE_HASH)).toEqual({
       ok: false,
       reason: 'refused',
       detail: 'Status 400, bad-hash',
     });
     expect(
-      await createRelayService(RELAY, { fetch: relay(json(404, 'x')).fn }).anchor(PROBE_HASH),
+      await relayService(RELAY, { fetch: relay(json(404, 'x')).fn }).anchor(PROBE_HASH),
     ).toMatchObject({ reason: 'refused', detail: 'Status 404' });
   });
 
   it('says bad response for text that is no JSON and for answers that do not fit', async () => {
     const notJson = relay(services('freetsa'), new Response('kein json', { status: 200 }));
-    expect(await createRelayService(RELAY, { fetch: notJson.fn }).anchor(PROBE_HASH)).toMatchObject(
-      {
-        reason: 'bad-response',
-      },
-    );
+    expect(await relayService(RELAY, { fetch: notJson.fn }).anchor(PROBE_HASH)).toMatchObject({
+      reason: 'bad-response',
+    });
     const extra = relay(services('freetsa'), json(200, answer({ extra: 1, serial: realSerial })));
-    expect(await createRelayService(RELAY, { fetch: extra.fn }).anchor(PROBE_HASH)).toMatchObject({
+    expect(await relayService(RELAY, { fetch: extra.fn }).anchor(PROBE_HASH)).toMatchObject({
       reason: 'bad-response',
     });
     expect(
-      await createRelayService(RELAY, { fetch: relay(json(200, { services: 'x' })).fn }).anchor(
+      await relayService(RELAY, { fetch: relay(json(200, { services: 'x' })).fn }).anchor(
         PROBE_HASH,
       ),
     ).toMatchObject({ reason: 'bad-response' });
     expect(
-      await createRelayService(RELAY, { fetch: relay(services('freetsa')).fn }).anchor('nope'),
+      await relayService(RELAY, { fetch: relay(services('freetsa')).fn }).anchor('nope'),
     ).toMatchObject({
       reason: 'bad-response',
     });
@@ -344,7 +351,7 @@ describe('the relay adapter', () => {
       if (String(url).endsWith('/digicert')) throw new TypeError('Failed to fetch');
       return json(200, answer({ serial: realSerial }));
     };
-    const out = await createRelayService(RELAY, { fetch: fn }).anchor(PROBE_HASH);
+    const out = await relayService(RELAY, { fetch: fn }).anchor(PROBE_HASH);
     expect(out.ok && out.value.tsaId).toBe('freetsa');
     expect(seen).toHaveLength(3);
   });
@@ -352,7 +359,7 @@ describe('the relay adapter', () => {
   it('pauses after a 429 on the list of services as well', async () => {
     let now = 1_000_000;
     const r = relay(json(429, { error: 'rate-limited' }, { 'Retry-After': '30' }));
-    const service = createRelayService(RELAY, { fetch: r.fn, now: () => now });
+    const service = relayService(RELAY, { fetch: r.fn, now: () => now });
     expect(await service.anchor(PROBE_HASH)).toEqual({
       ok: false,
       reason: 'rate-limited',
@@ -368,7 +375,7 @@ describe('the relay adapter', () => {
   });
 
   it('says unreachable when the network fails, with the reason', async () => {
-    const service = createRelayService(RELAY, {
+    const service = relayService(RELAY, {
       fetch: async () => {
         throw new TypeError('Failed to fetch');
       },
@@ -387,7 +394,7 @@ describe('the relay adapter', () => {
           reject(new DOMException('abort', 'AbortError')),
         );
       });
-    const r = await createRelayService(RELAY, { fetch: hang, timeoutMs: 20 }).anchor(PROBE_HASH);
+    const r = await relayService(RELAY, { fetch: hang, timeoutMs: 20 }).anchor(PROBE_HASH);
     expect(r).toEqual({ ok: false, reason: 'unreachable', detail: 'Zeitüberschreitung' });
     expect(CLIENT_LIMITS.timeoutMs).toBeGreaterThan(12_000);
   });

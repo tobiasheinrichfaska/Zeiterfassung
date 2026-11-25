@@ -12,6 +12,7 @@ import {
   formatDuration,
   formatIsoDate,
   markExported,
+  DEVICE_KEY_TEXTS,
   monthLabel,
   monthOf,
   monthSummary,
@@ -282,6 +283,11 @@ export function MonthPage() {
         <p data-state={anchoring.status.state} role="status">
           {anchorStatusText(anchoring.status)}
         </p>
+        {anchoring.needsKey && (
+          <p role="alert" data-device-key="missing">
+            {DEVICE_KEY_TEXTS.missing} Den Geräteschlüssel tragen Sie unter „Einstellungen“ ein.
+          </p>
+        )}
         <p>
           Die internen Stempel stammen von der Geräteuhr und belegen keine Zeit; nur die externen
           Zeitstempel belegen sie. Die App kann nur stempeln lassen, solange sie geöffnet und online

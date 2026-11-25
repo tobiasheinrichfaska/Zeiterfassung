@@ -17,7 +17,7 @@ createRoot(root).render(
       <BookProvider vault={vault}>
         <DraftProvider vault={vault}>
           <PromptProvider>
-            <AnchorProvider>
+            <AnchorProvider vault={vault}>
               <RunningPdfProvider vault={vault}>
                 <App />
               </RunningPdfProvider>

@@ -107,7 +107,13 @@ export function addAnchor(book: TimeBook, anchor: Anchor, nowIso: string): Resul
 
 /** The answer of the stamping service for a hash (or why there is none). */
 export type AnchorFailure =
-  'not-configured' | 'unreachable' | 'refused' | 'rate-limited' | 'bad-response' | 'not-verified';
+  | 'not-configured'
+  | 'unreachable'
+  | 'refused'
+  | 'rate-limited'
+  | 'bad-response'
+  | 'not-verified'
+  | 'unauthorized';
 
 /** What a verified answer gives: the time and serial are those of the checked token, not the relay's. */
 export interface AnchorValue {
@@ -127,6 +133,7 @@ export const ANCHOR_FAILURE_TEXTS: Record<AnchorFailure, string> = {
   'rate-limited': 'Der Zeitstempeldienst nimmt vorerst keine weitere Anfrage an.',
   'bad-response': 'Die Antwort des Zeitstempeldienstes ist ungültig.',
   'not-verified': 'Das Token des Zeitstempeldienstes hat die Prüfung nicht bestanden.',
+  unauthorized: 'Geräteschlüssel wird vom Zeitstempeldienst nicht angenommen.',
 };
 
 /** Standard Base64 with padding. */

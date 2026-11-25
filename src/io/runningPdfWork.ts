@@ -2,6 +2,7 @@ import type { Vault } from 'local-vault';
 import { appendDocTimeStamp, findDocTimeStamps, type Stamper } from 'pdf-fortschreiben';
 import {
   ANCHOR_FAILURE_TEXTS,
+  DEVICE_KEY_TEXTS,
   LEGACY_PDF_SLOTS,
   PDF_SLOTS,
   RUNNING_PDF_TEXTS,
@@ -47,8 +48,10 @@ import { tokenTime } from './zeitstempel.ts';
 export interface RunningPdfDeps {
   vault: Pick<Vault, 'readSlot' | 'writeSlot'> & Partial<Pick<Vault, 'saved' | 'onError'>>;
   assets: () => PdfAssets;
-  /** The time stamp service; undefined when none is set up in this build. */
+  /** The time stamp service; undefined when none is set up in this build or the device is not unlocked. */
   service: AnchorService | undefined;
+  /** A relay is set up, but the device key is missing: say so instead of „no service“. */
+  needsKey?: boolean;
   now: () => Date;
   /** Characters a slot may hold; `PDF_SLOT_LIMIT` unless a test sets it. */
   slotLimit?: number;
@@ -253,8 +256,13 @@ export async function updateRunningMonth(
   // one document time stamp over the newest state (also one left unstamped by an earlier run)
   const state = await runningPdfState(pdf);
   if (state.ok && !state.value.newestStamped && !tooLarge) {
-    if (!deps.service) problems.push(RUNNING_PDF_TEXTS.noRelay);
-    else {
+    if (!deps.service) {
+      problems.push(
+        deps.needsKey
+          ? `${RUNNING_PDF_TEXTS.stampFailed}: ${DEVICE_KEY_TEXTS.missing}`
+          : RUNNING_PDF_TEXTS.noRelay,
+      );
+    } else {
       const stamped = await stampRunningPdf(pdf, deps.service);
       if (!stamped.ok) problems.push(stamped.text);
       else {

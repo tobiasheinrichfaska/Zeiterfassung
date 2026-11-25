@@ -28,7 +28,7 @@
     "rad-navi": "github:tobiasheinrichfaska/rad-navi#v0.1.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "zeitstempel": "github:tobiasheinrichfaska/zeitstempel#v0.1.0"
+    "zeitstempel": "github:tobiasheinrichfaska/zeitstempel#e98ab3e0cea54fbc2aec2d3dc146b1a991dd9d08"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

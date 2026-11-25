@@ -228,6 +228,12 @@ describe('running monthly PDF in the app (store and run)', () => {
       newestStamped: false,
     });
     expect(none.infos[0]!.problem).toContain('Kein externer Zeitstempeldienst');
+    // a relay is set up, but this device has no device key: it says so
+    const locked = await updateRunningPdfs(book(), { ...deps(vault), needsKey: true });
+    expect(locked.infos[0]!.problem).toContain(
+      'Gerät nicht freigeschaltet (Geräteschlüssel fehlt)',
+    );
+    expect(locked.infos[0]!.newestStamped).toBe(false);
 
     const down = service('down');
     const failed = await updateRunningPdfs(book(), deps(vault, down.s));

@@ -39,11 +39,12 @@ const assets = (): PdfAssets => (fonts ??= pdfAssets());
  */
 export function RunningPdfProvider({ vault, children }: { vault: Vault; children: ReactNode }) {
   const { book, getBook, showError } = useBookApi();
-  const { service } = useAnchoring();
+  const { service, needsKey } = useAnchoring();
   const [run, setRun] = useState<RunningPdfRun | undefined>();
   const [busy, setBusy] = useState(false);
   const known = useLatest<RunningPdfRun | undefined>(undefined);
   const latestService = useLatest(service);
+  const latestNeedsKey = useLatest(needsKey);
   const queue = useRef<Promise<void>>(Promise.resolve());
   const queued = useRef(false);
   const migrated = useRef(false);
@@ -79,7 +80,13 @@ export function RunningPdfProvider({ vault, children }: { vault: Vault; children
         take(
           await updateRunningPdfs(
             getBook(),
-            { vault, assets, service: latestService.get(), now: () => new Date() },
+            {
+              vault,
+              assets,
+              service: latestService.get(),
+              needsKey: latestNeedsKey.get(),
+              now: () => new Date(),
+            },
             { migrate },
           ),
         );
@@ -93,13 +100,14 @@ export function RunningPdfProvider({ vault, children }: { vault: Vault; children
         setBusy(false);
       }
     });
-  }, [enqueue, getBook, vault, latestService, take, showError]);
+  }, [enqueue, getBook, vault, latestService, latestNeedsKey, take, showError]);
 
   // at the start and whenever the service changes (set up, or another relay chosen)
   useEffect(() => {
     latestService.set(service);
+    latestNeedsKey.set(needsKey);
     refresh();
-  }, [service, latestService, refresh]);
+  }, [service, needsKey, latestService, latestNeedsKey, refresh]);
 
   // a day that ended (or was entered) and is not in its file yet
   useEffect(() => {
