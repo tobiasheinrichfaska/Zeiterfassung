@@ -5,7 +5,6 @@ import {
   encodeRunningPdf,
   forcedSave,
   runningPdfState,
-  startRunningPdf,
   type AnchorOutcome,
   type TimeBook,
 } from '../src/logic/index.ts';
@@ -19,7 +18,7 @@ import {
   updateRunningPdfs,
   type RunningPdfDeps,
 } from '../src/io/runningPdfWork.ts';
-import { createAppVault } from '../src/ui/vault.ts';
+import { createAppVault, vaultConfig } from '../src/ui/vault.ts';
 import { bookWith, day, val } from './helpers.ts';
 import { ASSETS } from './pdfAssets.ts';
 
@@ -279,50 +278,15 @@ describe('running monthly PDF in the app (store and run)', () => {
     expect(vault.readSlot('monatspdf-b')).toBe(btoa('%PDF-1.7 fremd'));
   }, 60_000);
 
-  it('moves files of the earlier build once (current and previous month), reports the rest', async () => {
-    const { env, vault } = await openVault();
-    const make = async (month: string) =>
-      val(await startRunningPdf(book(), month, ASSETS, { createdIso: '2026-11-01T06:00:00.000Z' }));
-    const nov = await make('2026-11');
-    const oct = await make('2026-10');
-    const aug = await make('2026-08');
-    vault.writeSlot('monatspdf-2026-11', encodeRunningPdf(nov));
-    vault.writeSlot('monatspdf-2026-10', encodeRunningPdf(oct));
-    vault.writeSlot('monatspdf-2026-08', encodeRunningPdf(aug));
-    await vault.saved();
-
-    const run = await updateRunningPdfs(book(), deps(vault), { migrate: true });
-    expect(run.problems).toEqual([]);
-    expect(readPdfSlot(vault, 'monatspdf-2026-11')).toEqual({ kind: 'none' });
-    expect(readPdfSlot(vault, 'monatspdf-2026-10')).toEqual({ kind: 'none' });
-    expect(run.infos.map((i) => [i.slot, i.month]).sort()).toEqual([
-      ['monatspdf-a', '2026-10'],
-      ['monatspdf-b', '2026-11'],
+  it('declares exactly the book, draft, device key and the two PDF slots (no per-month slots)', () => {
+    expect(vaultConfig.slots).toEqual([
+      'book',
+      'draft',
+      'geraeteschluessel',
+      'monatspdf-a',
+      'monatspdf-b',
     ]);
-    // the moved files were continued, not started anew (their start time stays)
-    const moved = pdfInSlot(vault, 'monatspdf-b')!;
-    expect(moved.subarray(0, nov.length)).toEqual(nov);
-    // the older file stays where it is and is reported as a reminder to save
-    expect(readPdfSlot(vault, 'monatspdf-2026-08')).toEqual({ kind: 'pdf', pdf: aug });
-    expect(run.plan.save).toContainEqual({
-      slot: 'monatspdf-2026-08',
-      month: '2026-08',
-      mode: 'reminder',
-      why: 'legacy',
-    });
-    expect(
-      await releasePdf(
-        vault,
-        'monatspdf-2026-08',
-        '2026-08',
-        aug.length,
-        '2026-11-05T10:00:00.000Z',
-      ),
-    ).toBeUndefined();
-    expect(readPdfSlot(vault, 'monatspdf-2026-08')).toEqual({ kind: 'none' });
-    await vault.saved();
-    expect(env.read('zeiterfassung-monatspdf-a')).not.toBeNull();
-  }, 60_000);
+  });
 
   it('purging a month removes its file or marker from the slots', async () => {
     const { vault } = await openVault();

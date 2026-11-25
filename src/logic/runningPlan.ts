@@ -20,30 +20,6 @@ export const PDF_SLOTS = ['monatspdf-a', 'monatspdf-b'] as const;
 export type PdfSlot = (typeof PDF_SLOTS)[number];
 
 /**
- * The slots of the earlier build (one per month, `monatspdf-2026-01` … `monatspdf-2040-12`). They stay
- * declared only so that a file stored there can be read once, moved or saved, and then emptied; nothing new
- * is written there.
- */
-export const LEGACY_PDF_FIRST_MONTH: MonthKey = '2026-01';
-export const LEGACY_PDF_LAST_MONTH: MonthKey = '2040-12';
-
-/** The earlier build's slot of a month, or null outside its span. */
-export function legacyPdfSlot(month: MonthKey): string | null {
-  if (!isMonthKey(month)) return null;
-  const i = monthIndex(month);
-  if (i < monthIndex(LEGACY_PDF_FIRST_MONTH) || i > monthIndex(LEGACY_PDF_LAST_MONTH)) return null;
-  return `monatspdf-${month}`;
-}
-
-export const LEGACY_PDF_SLOTS: readonly string[] = (() => {
-  const out: string[] = [];
-  const first = monthIndex(LEGACY_PDF_FIRST_MONTH);
-  const count = monthIndex(LEGACY_PDF_LAST_MONTH) - first + 1;
-  for (let i = 0; i < count; i++) out.push(`monatspdf-${shiftMonth(LEGACY_PDF_FIRST_MONTH, i)}`);
-  return out;
-})();
-
-/**
  * The most a slot may hold, in characters of its text (the PDF as Base64; about 900 KB of PDF). The vault
  * keeps everything in the browser's localStorage (about 5 million characters for all of it) and stores a
  * slot encrypted, about a third longer again: two full slots take about 3.2 million, which leaves room for
@@ -102,8 +78,8 @@ export interface PdfSaveRequest {
   slot: string;
   month: MonthKey;
   mode: 'reminder' | 'forced';
-  /** Why: the previous month's week is over or running, an older month, a file from the earlier build, or a state that did not fit. */
-  why: 'previous' | 'older' | 'legacy' | 'too-large' | 'duplicate';
+  /** Why: the previous month's week is over or running, an older month, a second file of a month, or a state that did not fit. */
+  why: 'previous' | 'older' | 'too-large' | 'duplicate';
 }
 
 /** Where a month's file is kept: an existing file, or the slot to start it in. */

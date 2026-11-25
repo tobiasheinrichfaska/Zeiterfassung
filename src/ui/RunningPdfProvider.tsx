@@ -47,7 +47,6 @@ export function RunningPdfProvider({ vault, children }: { vault: Vault; children
   const latestNeedsKey = useLatest(needsKey);
   const queue = useRef<Promise<void>>(Promise.resolve());
   const queued = useRef(false);
-  const migrated = useRef(false);
 
   const take = useCallback(
     (next: RunningPdfRun) => {
@@ -75,20 +74,14 @@ export function RunningPdfProvider({ vault, children }: { vault: Vault; children
       queued.current = false;
       setBusy(true);
       try {
-        const migrate = !migrated.current;
-        migrated.current = true;
         take(
-          await updateRunningPdfs(
-            getBook(),
-            {
-              vault,
-              assets,
-              service: latestService.get(),
-              needsKey: latestNeedsKey.get(),
-              now: () => new Date(),
-            },
-            { migrate },
-          ),
+          await updateRunningPdfs(getBook(), {
+            vault,
+            assets,
+            service: latestService.get(),
+            needsKey: latestNeedsKey.get(),
+            now: () => new Date(),
+          }),
         );
       } catch (error) {
         showError(

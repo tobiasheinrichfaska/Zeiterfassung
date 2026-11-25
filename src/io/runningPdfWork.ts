@@ -3,22 +3,18 @@ import { appendDocTimeStamp, findDocTimeStamps, type Stamper } from 'pdf-fortsch
 import {
   ANCHOR_FAILURE_TEXTS,
   DEVICE_KEY_TEXTS,
-  LEGACY_PDF_SLOTS,
   PDF_SLOTS,
   RUNNING_PDF_TEXTS,
   RUNNING_STAMP_RESERVES,
   appendRunningDay,
   clockFromDate,
   daysToAppend,
-  monthOf,
   pdfSlotPlan,
   reasonText,
   runningPdfState,
-  shiftMonth,
   startRunningPdf,
   type MonthKey,
   type PdfAssets,
-  type PdfSaveRequest,
   type PdfSlot,
   type PdfSlotContent,
   type PdfSlotPlan,
@@ -282,105 +278,27 @@ export async function updateRunningMonth(
   );
 }
 
-/** Waits until the vault wrote what was queued; the storage errors it reported meanwhile. */
-async function settled(vault: RunningPdfDeps['vault']): Promise<string[]> {
-  const errors: string[] = [];
-  const stop = vault.onError?.((e) => errors.push(e));
-  try {
-    await vault.saved?.();
-  } finally {
-    stop?.();
-  }
-  return errors;
-}
-
-/**
- * Moves files of the earlier build (one slot per month) once: the current and the previous month's file
- * go into a free slot of the two (only when neither slot has that month yet); the earlier slot is emptied
- * only after the vault confirmed the new write without an error. Every other file stays where it is (it is
- * reported, `legacyFiles`). Answers the months moved and the problems met.
- */
-export async function migrateLegacyPdfs(
-  deps: RunningPdfDeps,
-): Promise<{ moved: MonthKey[]; problems: string[] }> {
-  const today = clockFromDate(deps.now()).date;
-  const keep = [monthOf(today), shiftMonth(monthOf(today), -1)];
-  const moved: MonthKey[] = [];
-  const problems: string[] = [];
-  for (const legacy of LEGACY_PDF_SLOTS) {
-    const read = readPdfSlot(deps.vault, legacy);
-    if (read.kind !== 'pdf') continue;
-    const state = await runningPdfState(read.pdf);
-    if (!state.ok || !keep.includes(state.value.month)) continue;
-    const month = state.value.month;
-    const slots = contents(await readSlots(deps.vault));
-    const taken = PDF_SLOTS.some((s) => {
-      const c = slots[s];
-      return (c.kind === 'pdf' || c.kind === 'saved') && c.month === month;
-    });
-    if (taken) continue;
-    const free =
-      PDF_SLOTS.find((s) => slots[s].kind === 'empty') ??
-      PDF_SLOTS.find((s) => {
-        const c = slots[s];
-        return c.kind === 'saved' && !keep.includes(c.month);
-      });
-    if (free === undefined) continue;
-    const refused = writePdfSlot(deps.vault, free, read.pdf, deps.slotLimit);
-    if (refused !== undefined) {
-      problems.push(`${RUNNING_PDF_TEXTS.failed}: ${refusalText(refused)}`);
-      continue;
-    }
-    const errors = await settled(deps.vault);
-    if (errors.length > 0) {
-      problems.push(`${RUNNING_PDF_TEXTS.failed}: ${errors.join(' ')}`);
-      // the copy may be incomplete: the earlier slot keeps the file, the new slot is emptied again
-      deps.vault.writeSlot(free, '');
-      continue;
-    }
-    const cleared = clearPdfSlot(deps.vault, legacy);
-    if (cleared !== undefined) problems.push(cleared);
-    moved.push(month);
-  }
-  return { moved, problems };
-}
-
-/** Files still in slots of the earlier build: to be saved (they are not continued). */
-export async function legacyFiles(vault: RunningPdfDeps['vault']): Promise<PdfSaveRequest[]> {
-  const out: PdfSaveRequest[] = [];
-  for (const slot of LEGACY_PDF_SLOTS) {
-    const read = readPdfSlot(vault, slot);
-    if (read.kind !== 'pdf') continue;
-    const state = await runningPdfState(read.pdf);
-    const month = state.ok ? state.value.month : slot.slice('monatspdf-'.length);
-    out.push({ slot, month, mode: 'reminder', why: 'legacy' });
-  }
-  return out;
-}
-
 /** The result of one run: how each file stands, the slot plan and what was saved out. */
 export interface RunningPdfRun {
   /** Every file in the two slots, described. */
   infos: RunningPdfInfo[];
-  /** The plan after the run, with the files of the earlier build added to `save` (reminders). */
+  /** The plan after the run. */
   plan: PdfSlotPlan;
   /** Months whose file was saved out (their markers), with the time of the confirmation. */
   saved: { month: MonthKey; at: string }[];
-  /** Problems outside a single month (migration). */
+  /** Problems outside a single month. */
   problems: string[];
 }
 
 /**
- * One run: (once, when `migrate`) move files of the earlier build; plan the slots; bring the previous and
+ * One run: plan the slots; bring the previous and
  * the current month up to date; describe every file; plan again with the slots that did not fit.
  */
 export async function updateRunningPdfs(
   book: TimeBook,
   deps: RunningPdfDeps,
-  options: { migrate?: boolean } = {},
 ): Promise<RunningPdfRun> {
   const problems: string[] = [];
-  if (options.migrate) problems.push(...(await migrateLegacyPdfs(deps)).problems);
   const today = clockFromDate(deps.now()).date;
   const first = pdfSlotPlan(today, contents(await readSlots(deps.vault)));
   const updated = new Map<string, RunningPdfInfo>();
@@ -403,13 +321,11 @@ export async function updateRunningPdfs(
     else if (read.kind === 'saved') saved.push({ month: read.month, at: read.at });
     else if (content.kind === 'unreadable' && done) infos.push(done);
   }
-  plan.save.push(...(await legacyFiles(deps.vault)));
   return { infos, plan, saved, problems };
 }
 
 /**
- * After the employee saved a file and confirmed it: one of the two slots keeps only the month's marker,
- * a slot of the earlier build is emptied. Only when the slot still holds exactly the state that was saved
+ * After the employee saved a file and confirmed it: its slot keeps only the month's marker. Only when the slot still holds exactly the state that was saved
  * (`savedLength`: the file only grows, so another length is another state); otherwise nothing is changed.
  * Returns a refusal text, or undefined.
  */
@@ -431,7 +347,7 @@ export async function releasePdf(
   }
   return (PDF_SLOTS as readonly string[]).includes(slot)
     ? markPdfSaved(vault, slot, month, atIso)
-    : clearPdfSlot(vault, slot);
+    : RUNNING_PDF_TEXTS.releaseChanged;
 }
 
 /** The stored file of a slot, or undefined. */
@@ -445,7 +361,7 @@ export async function forgetPdfs(
   vault: RunningPdfDeps['vault'],
   months: readonly MonthKey[],
 ): Promise<string | undefined> {
-  for (const slot of [...PDF_SLOTS, ...LEGACY_PDF_SLOTS]) {
+  for (const slot of PDF_SLOTS) {
     const found = await readSlot(vault, slot);
     const c = found.content;
     if ((c.kind === 'pdf' || c.kind === 'saved') && months.includes(c.month)) {

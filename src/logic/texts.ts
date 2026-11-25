@@ -121,8 +121,6 @@ export function saveRequestText(r: PdfSaveRequest, today: string): string {
       return `Die laufende Monatsdatei ${label} liegt zweimal in der App. Bitte diese zweite Datei speichern.`;
     case 'too-large':
       return `${RUNNING_PDF_TEXTS.tooLarge} (${label})`;
-    case 'legacy':
-      return `Eine laufende Monatsdatei ${label} einer früheren Fassung liegt noch in der App. Bitte speichern; sie wird nicht mehr fortgeschrieben.`;
   }
 }
 

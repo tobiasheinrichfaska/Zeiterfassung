@@ -146,7 +146,6 @@ describe('docs/data-model.html against the code', () => {
       'pdfSlotPlan',
       'forcedSave',
       'daysToAppend',
-      'legacyPdfSlot',
       'pdfFitsSlot',
       'savedMarker',
       'saveRequestText',

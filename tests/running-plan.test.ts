@@ -1,12 +1,10 @@
 import {
-  LEGACY_PDF_SLOTS,
   PDF_SLOTS,
   PDF_SLOT_LIMIT,
   decodeRunningPdf,
   daysToAppend,
   encodeRunningPdf,
   forcedSave,
-  legacyPdfSlot,
   pdfFitsSlot,
   pdfSlotPlan,
   runningPdfFileName,
@@ -29,16 +27,8 @@ const book = () =>
   );
 
 describe('running monthly PDF: plan', () => {
-  it('two fixed slots; the per-month slots of the earlier build only for reading', () => {
+  it('two fixed slots', () => {
     expect(PDF_SLOTS).toEqual(['monatspdf-a', 'monatspdf-b']);
-    expect(legacyPdfSlot('2026-11')).toBe('monatspdf-2026-11');
-    expect(legacyPdfSlot('2025-12')).toBeNull();
-    expect(legacyPdfSlot('2041-01')).toBeNull();
-    expect(legacyPdfSlot('2026-13')).toBeNull();
-    expect(LEGACY_PDF_SLOTS).toHaveLength(15 * 12);
-    expect(LEGACY_PDF_SLOTS[0]).toBe('monatspdf-2026-01');
-    expect(LEGACY_PDF_SLOTS.at(-1)).toBe('monatspdf-2040-12');
-    expect(new Set([...LEGACY_PDF_SLOTS, ...PDF_SLOTS]).size).toBe(LEGACY_PDF_SLOTS.length + 2);
     expect(runningPdfFileName('2026-11')).toBe('zeiterfassung-2026-11-laufend.pdf');
   });
 
@@ -233,6 +223,5 @@ describe('running monthly PDF: which slot holds what (pdfSlotPlan)', () => {
     expect(saveRequestText({ ...r, why: 'too-large', mode: 'forced' }, '2026-11-08')).toContain(
       'zu groß',
     );
-    expect(saveRequestText({ ...r, why: 'legacy' }, '2026-11-08')).toContain('früheren Fassung');
   });
 });
