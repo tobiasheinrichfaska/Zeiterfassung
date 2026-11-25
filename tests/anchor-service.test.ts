@@ -165,6 +165,29 @@ describe('the relay adapter', () => {
     expect(String(r.seen[1]!.init.body)).not.toMatch(/=/);
   });
 
+  it('reports the relay clock offset when the relay Date differs by more than 30 s', async () => {
+    const offsets: number[] = [];
+    const behind = new Date(TOKEN_WALL + 5 * 60_000).toUTCString();
+    const r = relay(
+      json(200, { services: [{ id: 'freetsa' }] }, { Date: behind }),
+      json(200, answer({ serial: realSerial }), { Date: behind }),
+    );
+    await relayService(RELAY, { fetch: r.fn, onClockOffset: (o) => offsets.push(o) }).anchor(
+      PROBE_HASH,
+    );
+    expect(offsets).toEqual([5 * 60_000]);
+    const same = new Date(TOKEN_WALL + 10_000).toUTCString();
+    const q = relay(
+      json(200, { services: [{ id: 'freetsa' }] }, { Date: same }),
+      json(200, answer({ serial: realSerial }), { Date: same }),
+    );
+    const none: number[] = [];
+    await relayService(RELAY, { fetch: q.fn, onClockOffset: (o) => none.push(o) }).anchor(
+      PROBE_HASH,
+    );
+    expect(none).toEqual([]);
+  });
+
   it('takes the time and serial from the verified token, not from the relay', async () => {
     const r = relay(
       services('freetsa'),

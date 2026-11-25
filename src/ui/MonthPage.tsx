@@ -34,6 +34,7 @@ import { useBookApi } from './bookContext.ts';
 import { DayForm } from './DayForm.tsx';
 import { useDrafts } from './draftContext.ts';
 import { useAnchoring } from './anchorContext.ts';
+import { ClockWarning } from './ClockWarning.tsx';
 import { useRunningPdf } from './runningPdfContext.ts';
 import { useAskReason } from './promptContext.ts';
 import { pdfAssets } from './pdfAssets.ts';
@@ -283,6 +284,7 @@ export function MonthPage() {
         <p data-state={anchoring.status.state} role="status">
           {anchorStatusText(anchoring.status)}
         </p>
+        <ClockWarning />
         {anchoring.needsKey && (
           <p role="alert" data-device-key="missing">
             {DEVICE_KEY_TEXTS.missing} Den Geräteschlüssel tragen Sie unter „Einstellungen“ ein.
@@ -372,6 +374,7 @@ export function MonthPage() {
 
       <section style={styles.card} aria-label="Laufendes Monats-PDF">
         <h3>Laufendes Monats-PDF</h3>
+        <ClockWarning />
         <p>
           Nach jedem „Gehen“ (oder beim nächsten Start) bekommt die Monatsdatei eine neue Seite mit
           dem Stand bis zu diesem Tag und einen neuen Anhang; danach wird der neue Stand extern

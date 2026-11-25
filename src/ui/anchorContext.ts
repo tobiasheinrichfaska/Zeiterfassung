@@ -19,6 +19,8 @@ export interface AnchorApi {
   removeDeviceKey(): string | undefined;
   /** The service itself (one client for the whole app, so a 429 pause holds for every caller). */
   service: AnchorService | undefined;
+  /** The relay's clock minus the device clock in ms, as last learned (0 = not known or in agreement). */
+  clockOffsetMs: number;
   busy: boolean;
   /** Asks the service for a time stamp now; every failure is shown to the person. */
   anchorNow(): Promise<'anchor' | 'off' | 'nothing' | 'failed'>;

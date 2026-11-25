@@ -35,6 +35,7 @@ export function AnchorProvider({ vault, children }: { vault: Vault; children: Re
   const [, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
   const running = useRef(false);
+  const [clockOffsetMs, setClockOffsetMs] = useState(0);
   const [deviceKey, setDeviceKey] = useState<DeviceKeyLoad | { kind: 'loading' }>({
     kind: 'loading',
   });
@@ -42,7 +43,10 @@ export function AnchorProvider({ vault, children }: { vault: Vault; children: Re
   const relayAvailable = relayUsable(relay, ALLOWED_RELAYS);
   const key = deviceKey.kind === 'key' ? deviceKey.key : undefined;
   const service = useMemo(
-    () => (relayAvailable && key ? createRelayService(relay, { auth: key }) : undefined),
+    () =>
+      relayAvailable && key
+        ? createRelayService(relay, { auth: key, onClockOffset: setClockOffsetMs })
+        : undefined,
     [relayAvailable, relay, key],
   );
 
@@ -131,6 +135,7 @@ export function AnchorProvider({ vault, children }: { vault: Vault; children: Re
     enterDeviceKey,
     removeDeviceKey,
     service,
+    clockOffsetMs,
     busy,
     anchorNow,
     sealNow,

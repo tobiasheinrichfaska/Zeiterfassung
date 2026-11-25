@@ -64,6 +64,8 @@ export interface RelayOptions {
   /** The services the app trusts: id → PEM text of the trust anchors. */
   trusted?: ReadonlyMap<string, { anchors: string[] }>;
   verify?: typeof verifyTimestampToken;
+  /** Called with the relay's clock minus the device clock (ms) whenever the adapter learns a new offset. */
+  onClockOffset?: (offsetMs: number) => void;
 }
 
 const VERIFY_TEXTS: Partial<Record<Reason, string>> = {
@@ -154,8 +156,10 @@ export function createRelayService(base: string, options: RelayOptions = {}): An
     const relayMs = Date.parse(response.headers.get('Date') ?? '');
     if (!Number.isFinite(relayMs)) return;
     const device = wallNow();
-    if (Math.abs(relayMs - (device + clockOffsetMs)) > CLOCK_FIX_MS)
+    if (Math.abs(relayMs - (device + clockOffsetMs)) > CLOCK_FIX_MS) {
       clockOffsetMs = relayMs - device;
+      options.onClockOffset?.(clockOffsetMs);
+    }
   };
   const client = createRelayClient({
     relay: base,

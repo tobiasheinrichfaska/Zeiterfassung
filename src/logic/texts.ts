@@ -169,3 +169,20 @@ export function slotPlanNotes(plan: PdfSlotPlan): string[] {
     );
   return out;
 }
+
+/** From this difference between the device clock and the relay's clock on, the person is warned. */
+export const CLOCK_WARNING_MS = 30_000;
+
+/**
+ * The warning about a wrong device clock, or `null` when the clocks agree (within 30 s). `offsetMs` is the
+ * relay's clock minus the device clock: negative means the device clock is ahead („geht vor“).
+ */
+export function clockWarningText(offsetMs: number): string | null {
+  if (!Number.isFinite(offsetMs) || Math.abs(offsetMs) <= CLOCK_WARNING_MS) return null;
+  const seconds = Math.round(Math.abs(offsetMs) / 1000);
+  const amount =
+    seconds < 60
+      ? `${seconds} ${seconds === 1 ? 'Sekunde' : 'Sekunden'}`
+      : `${Math.round(seconds / 60)} ${Math.round(seconds / 60) === 1 ? 'Minute' : 'Minuten'}`;
+  return `Die Uhr dieses Geräts geht ${amount} ${offsetMs < 0 ? 'vor' : 'nach'} – bitte die Uhrzeit des Geräts stellen.`;
+}

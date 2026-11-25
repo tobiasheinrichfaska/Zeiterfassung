@@ -364,6 +364,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     st.t + ' | ' + (await alertText()),
   );
   await dismiss();
+  {
+    const w = await page
+      .locator('[data-clock-warning]')
+      .first()
+      .innerText()
+      .catch(() => '');
+    ok(
+      'clock warning shown (device clock 25 h ahead)',
+      /geht .* vor – bitte die Uhrzeit des Geräts stellen/.test(w),
+      w,
+    );
+  }
   // the device clock goes back by 3 hours: a token that is "from the future" is refused (anchor-skew)
   await page.clock.setSystemTime(new Date(Date.now() - 3 * 3600e3));
   // a stamp made now carries the set-back device time: save a day through the form
@@ -385,6 +397,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     a,
   );
   await dismiss();
+  {
+    const w = await page
+      .locator('[data-clock-warning]')
+      .first()
+      .innerText()
+      .catch(() => '');
+    ok(
+      'clock warning shown (device clock 3 h behind)',
+      /geht .* nach – bitte die Uhrzeit des Geräts stellen/.test(w),
+      w,
+    );
+  }
   st = await state();
   ok('status stays due after the refusal', st.s === 'due' || st.s === 'overdue', st.t);
   const skewRow = await sect.locator('summary', { hasText: 'Stempelkette' }).count();
