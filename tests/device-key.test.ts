@@ -255,6 +255,35 @@ describe('the authenticated relay (adapter)', () => {
     ).toMatchObject({ ok: false, reason: 'not-verified' });
   });
 
+  it('judges freshness by the relay’s clock when the device clock is off by more than 30 s', async () => {
+    const dated = (date: number) => {
+      const seen: string[] = [];
+      const fn: typeof fetch = async (url) => {
+        seen.push(String(url));
+        const headers = { Date: new Date(date).toUTCString() };
+        return String(url).endsWith('/v1/services')
+          ? json(200, { services: [{ id: 'freetsa' }] }, headers)
+          : new Response((await answer().text()) as string, { status: 200, headers });
+      };
+      return fn;
+    };
+    const ahead = () => GEN + 2 * 3_600_000; // the device clock runs two hours ahead
+    // without the relay's Date the genuine token looks back-dated
+    expect(await service(relay(answer()).fn, { wallNow: ahead }).anchor(PROBE_HASH)).toMatchObject({
+      ok: false,
+      detail: 'die bestätigte Zeit liegt vor der Anfrage (rückdatiert)',
+    });
+    // with it, the window is the relay's: accepted
+    expect((await service(dated(GEN + 3000), { wallNow: ahead }).anchor(PROBE_HASH)).ok).toBe(true);
+    // a back-dated token stays refused when the relay's clock says it is old
+    expect(
+      await service(dated(GEN + 5 * 60_000), { wallNow: ahead }).anchor(PROBE_HASH),
+    ).toMatchObject({
+      ok: false,
+      detail: 'die bestätigte Zeit liegt vor der Anfrage (rückdatiert)',
+    });
+  });
+
   it('waits long enough for the relay (its own waits are up to 47 s in single operation)', () => {
     expect(RELAY_TIMEOUT_MS).toBeGreaterThanOrEqual(47_000 + 30_000);
   });

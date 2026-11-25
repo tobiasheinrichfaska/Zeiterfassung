@@ -38,6 +38,12 @@ export const RELAY_TIMEOUT_MS = 80_000;
 /** How far before the sending a token's time may lie (the relay's own `genTimeSlackMs`, clock differences). */
 export const FRESHNESS_SLACK_MS = 60_000;
 
+/**
+ * From this difference between the device clock and the relay's `Date` on, the freshness check uses the
+ * relay's clock (the library's own `clockFixMs`, which it uses for the signed header after a 401).
+ */
+export const CLOCK_FIX_MS = 30_000;
+
 /** What the adapter needs from the outside; all of it can be replaced in tests. */
 export interface RelayOptions {
   fetch?: typeof fetch;
@@ -135,11 +141,29 @@ export function createRelayService(base: string, options: RelayOptions = {}): An
   const doFetch = options.fetch ?? ((input, init) => fetch(input, init));
   const wallNow = options.wallNow ?? (() => Date.now());
   const verifyToken = options.verify ?? verifyTimestampToken;
-  /** Start times (wall clock) of the calls going on; a token must not be older than the earliest − 60 s. */
+  /** Start times (device clock) of the calls going on; a token must not be older than the earliest − 60 s. */
   const sending: number[] = [];
+  /**
+   * The relay's clock minus the device clock, learned from the `Date` of its answers (whole seconds) when
+   * they differ by more than 30 s, as `docs/relay.md` advises („now und minGenTime … mit der korrigierten
+   * Uhr“): a device clock that is wrong does not make every genuine token look back-dated or from the
+   * future. Limit: the window then rests on the relay's word about the time.
+   */
+  let clockOffsetMs = 0;
+  const learnClock = (response: Response) => {
+    const relayMs = Date.parse(response.headers.get('Date') ?? '');
+    if (!Number.isFinite(relayMs)) return;
+    const device = wallNow();
+    if (Math.abs(relayMs - (device + clockOffsetMs)) > CLOCK_FIX_MS)
+      clockOffsetMs = relayMs - device;
+  };
   const client = createRelayClient({
     relay: base,
-    fetch: ((url, init) => doFetch(url, init as RequestInit)) as FetchLike,
+    fetch: (async (url, init) => {
+      const response = await doFetch(url, init as RequestInit);
+      learnClock(response);
+      return response;
+    }) as FetchLike,
     now: options.now ?? (() => performance.now()),
     wallNow,
     trusted: new Map([...(options.trusted ?? trustedServices())].map(([id, s]) => [id, s.anchors])),
@@ -151,9 +175,11 @@ export function createRelayService(base: string, options: RelayOptions = {}): An
     // freshness: the library's client checks no token age itself (`minGenTime`), so the app adds it
     verify: (token, hash, anchors) =>
       verifyToken(token, hash, anchors, {
-        now: new Date(wallNow()),
+        now: new Date(wallNow() + clockOffsetMs),
         minGenTime: new Date(
-          (sending.length > 0 ? Math.min(...sending) : wallNow()) - FRESHNESS_SLACK_MS,
+          (sending.length > 0 ? Math.min(...sending) : wallNow()) +
+            clockOffsetMs -
+            FRESHNESS_SLACK_MS,
         ),
       }),
   });
