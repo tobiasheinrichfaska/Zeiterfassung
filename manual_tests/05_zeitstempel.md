@@ -97,3 +97,29 @@ solange sie geöffnet und online ist; im Hintergrund geht nichts.
 
 - Bei 6000 Stempeln lehnt die App eine neue Schreibaktion mit „Die Stempelkette ist voll (6000 Stempel). …“ ab; nichts wird still verworfen.
 - Nach „Fällige exportierte Monate löschen“ wird die Kette nur gekürzt, wenn ein Anker die alten Stempel abdeckt (oder kein Weiterreicher eingestellt ist).
+
+## MT-37: Gerät mit dem Geräteschlüssel freischalten
+
+**Voraussetzung:** Eine Fassung mit Weiterreicher (`VITE_TIMESTAMP_RELAY`), der Weiterreicher läuft mit
+Schlüsseldatei. Vom Betreiber drei Schlüsseltexte (Form `<kennung>.<schlüssel>`, siehe `docs/geraeteschluessel.md`):
+A mit `"solo": true` in der Schlüsseldatei, B ohne `"solo"`, C gar nicht in der Schlüsseldatei. Alle Daten erfunden.
+
+**Schritte**
+
+1. Unter „Einstellungen“ den Weiterreicher wählen und „Speichern“. „Kommen“ stempeln, dann „Monat“ → „Zeitstempel“ ansehen.
+2. Unter „Einstellungen“ → „Geräteschlüssel“ einen Text ohne Punkt (nur die lange Zeile) einfügen und „Schlüssel speichern“.
+3. Schlüssel C einfügen und speichern; unter „Monat“ „Jetzt extern stempeln“.
+4. Schlüssel B einfügen und speichern; wieder „Jetzt extern stempeln“.
+5. Schlüssel A einfügen und speichern; wieder „Jetzt extern stempeln“.
+6. Die App schließen und neu öffnen (mit App-Sperre: Passwort eingeben), „Einstellungen“ ansehen.
+7. „Schlüssel entfernen“, Rückfrage bestätigen.
+
+**Erwartet**
+
+- Schritt 1: „Gerät nicht freigeschaltet (Geräteschlüssel fehlt). Den Geräteschlüssel tragen Sie unter „Einstellungen“ ein.“; „Jetzt extern stempeln“ ist ausgegraut. Das Stempeln der Zeiten funktioniert.
+- Schritt 2: roter Kasten „Der Geräteschlüssel hat nicht die erwartete Form …“; nichts wird gespeichert.
+- Schritt 3: Danach steht dort nur die Kennung („Gerät freigeschaltet mit dem Geräteschlüssel „…““), das Feld ist leer, der Schlüssel ist nirgends mehr zu sehen. Beim Stempeln roter Kasten „Geräteschlüssel wird vom Zeitstempeldienst nicht angenommen. (Status 401, unauthorized)“; kein externer Zeitstempel kommt dazu.
+- Schritt 4: derselbe Kasten mit „(Status 403, Schlüssel ohne Solo-Erlaubnis)“ (nur wenn der Weiterreicher im Sammelbetrieb läuft; sonst wird gestempelt).
+- Schritt 5: Status „ok“, ein externer Zeitstempel mehr; das laufende Monats-PDF wird nach dem nächsten „Gehen“ gestempelt.
+- Schritt 6: Die Kennung von A steht weiter da (der Schlüssel liegt verschlüsselt im Tresor, nicht im einfachen Speicher des Browsers).
+- Schritt 7: „Gerät nicht freigeschaltet (Geräteschlüssel fehlt).“; es wird nichts mehr gesendet.

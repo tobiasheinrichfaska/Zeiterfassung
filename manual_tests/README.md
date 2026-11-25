@@ -23,11 +23,11 @@ und Summen) und der Navigationsbaum.
 
 ## Dateien
 
-| Datei                         | Inhalt                                                                   |
-| ----------------------------- | ------------------------------------------------------------------------ |
-| `01_start.md`                 | Start der Anwendung                                                      |
-| `02_stechuhr_und_formular.md` | Stempeln, Tag eintragen, Fehlermeldungen, Mitternacht                    |
-| `03_monat_sicherung_pdf.md`   | Monat, PDF mit Anhang, Sicherung, Aufbewahrung, Räder, Tresor            |
-| `04_aenderungsprotokoll.md`   | Änderungen an abgelaufenen Tagen, Protokoll, Aufbewahrung                |
-| `05_zeitstempel.md`           | Stempelkette, externer Zeitstempeldienst, fällig und überfällig, Bericht |
-| `06_laufendes_monats_pdf.md`  | Laufendes Monats-PDF: Fortschreiben, Dokument-Zeitstempel, Monatswechsel |
+| Datei                         | Inhalt                                                                                            |
+| ----------------------------- | ------------------------------------------------------------------------------------------------- |
+| `01_start.md`                 | Start der Anwendung                                                                               |
+| `02_stechuhr_und_formular.md` | Stempeln, Tag eintragen, Fehlermeldungen, Mitternacht                                             |
+| `03_monat_sicherung_pdf.md`   | Monat, PDF mit Anhang, Sicherung, Aufbewahrung, Räder, Tresor                                     |
+| `04_aenderungsprotokoll.md`   | Änderungen an abgelaufenen Tagen, Protokoll, Aufbewahrung                                         |
+| `05_zeitstempel.md`           | Stempelkette, externer Zeitstempeldienst, fällig und überfällig, Bericht, Geräteschlüssel (MT-37) |
+| `06_laufendes_monats_pdf.md`  | Laufendes Monats-PDF: Fortschreiben, Dokument-Zeitstempel, Monatswechsel                          |
