@@ -15,6 +15,7 @@ bash e2e/build.sh               # Bau nach .tmp/e2e-dist, Weiterreicher http://l
 node24 e2e/harness.ts &         # Weiterreicher :8790, Steuerung :8791, die Seite :5178 (Node 24)
 node e2e/stamping.cjs           # Stempeln, fällig/ok/überfällig, 429, 502/504, manipulierte Antworten (~5 Minuten)
 node e2e/retention.cjs          # Aufbewahrung (MT-11, MT-18), Protokoll (MT-16, MT-17), Breite 360/320 px
+node e2e/runningpdf.cjs         # Laufendes Monats-PDF (MT-29 bis MT-33 teilweise): Tag, Zeitstempel, Relay aus/an, Monatswechsel, Speichern (~6 Minuten; Node >= 22)
 node24 e2e/pdfcheck.ts          # PDFs lesen, jedes Token mit `openssl ts -verify` prüfen
 ```
 
