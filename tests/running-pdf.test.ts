@@ -249,6 +249,23 @@ describe('running monthly PDF', () => {
   }, 30_000);
 });
 
+describe('a day added late', () => {
+  it('the new page and attachment still show the month up to the newest day in the file', async () => {
+    const book = november();
+    let pdf = val(await startRunningPdf(book, '2026-11', ASSETS, { createdIso: START }));
+    pdf = val(await appendRunningDay(pdf, book, '2026-11-04', ASSETS, at('2026-11-05')));
+    pdf = val(await appendRunningDay(pdf, book, '2026-11-02', ASSETS, at('2026-11-05')));
+    const names = (await readAttachments(new PdfFile(pdf))).map((a) => a.name);
+    expect(names).toContain('zeiterfassung-2026-11-tag-02.json');
+    const a = (await readAttachments(new PdfFile(pdf))).find(
+      (x) => x.name === 'zeiterfassung-2026-11-tag-02.json',
+    )!;
+    const json = JSON.parse(new TextDecoder().decode(a.data));
+    expect(json.upTo).toBe('2026-11-04');
+    expect(JSON.stringify(json.days)).toContain('2026-11-04');
+  }, 30_000);
+});
+
 describe('runningDayLayout and bookUpTo', () => {
   it('cuts the month after the day', () => {
     const book = november();

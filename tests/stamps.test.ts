@@ -26,7 +26,7 @@ import {
   type Stamp,
   type TimeBook,
 } from '../src/logic/index.ts';
-import { CTX, bookWith, day, val } from './helpers.ts';
+import { CTX, bookWith, day, evidenceFor, val } from './helpers.ts';
 
 const at = (date: string, h: number, m = 0) => ({ date, minute: h * 60 + m });
 const input = { date: '2026-11-23', startMin: 480, endMin: 990, breaks: [], note: '' };
@@ -379,6 +379,17 @@ describe('compaction of a long chain', () => {
   it('with a relay set drops only what an anchor covers, and keeps the rest (never loses an uncovered stamp)', () => {
     const b = long('https://relay.example/stamp');
     expect(compactStamps(b)).toBe(b); // nothing is covered yet
+  });
+
+  it('a compacted book whose newest anchor sits exactly on the new base is still readable', () => {
+    const b = long('https://relay.example/stamp');
+    const cut = LIMITS.stampsCompactAt + 10;
+    const hash = b.stamps[cut - 1]!.hash;
+    b.anchors = [{ coveredN: cut, headHash: hash, evidence: evidenceFor(hash) }];
+    const c = compactStamps(b);
+    expect(c.stampBase?.n).toBe(cut);
+    expect(c.anchors).toHaveLength(1);
+    expect(val(importBackup(exportBackup(c)))).toEqual(c);
   });
 
   it('keeps stamps of a month that still has a day', () => {

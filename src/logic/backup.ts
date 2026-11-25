@@ -165,7 +165,8 @@ function readChain(
   const broken = checkChain(readStamps, base);
   if (broken) return broken;
   const readAnchors: Anchor[] = [];
-  let last = base?.n ?? 0;
+  // the first anchor may cover the base itself (compaction keeps it), so it only has to be above base.n - 1
+  let last = base ? base.n - 1 : 0;
   for (const a of anchors) {
     const anchor = readAnchor(a);
     if (!anchor) return 'bad-backup';

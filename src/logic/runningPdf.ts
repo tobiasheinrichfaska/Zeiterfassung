@@ -222,19 +222,20 @@ export function runningDayLayout(
   date: DateKey,
   createdIso: string,
   hash: string,
+  upTo: DateKey = date,
 ): RunningDayLayout {
   const month = date.slice(0, 7);
-  const cut = bookUpTo(book, date);
+  const cut = bookUpTo(book, upTo);
   const s = monthSummary(cut, month);
   return {
-    title: `Arbeitszeit ${monthLabel(month)} – Stand ${dateLabel(date)}`,
+    title: `Arbeitszeit ${monthLabel(month)} – Stand ${dateLabel(upTo)}`,
     employee: book.settings.employeeLabel,
     header: COLUMN_HEADERS,
     rows: s.rows.map((r) => {
       const t = rowTexts(r);
       return [t.date, t.start, t.end, t.breaks, t.work, t.origin, r.note];
     }),
-    total: `Summe Arbeitszeit bis ${dateLabel(date)}: ${formatDuration(s.workMinutes)} Std. an ${s.rows.length - s.openDays} Tag(en)`,
+    total: `Summe Arbeitszeit bis ${dateLabel(upTo)}: ${formatDuration(s.workMinutes)} Std. an ${s.rows.length - s.openDays} Tag(en)`,
     openNote:
       s.openDays > 0
         ? `Hinweis: ${s.openDays} Tag(e) laufen noch und sind nicht in der Summe.`
@@ -319,10 +320,13 @@ export async function appendRunningDay(
   if (!day) return fail('no-such-day');
   if (day.endMin === null) return fail('day-running');
 
-  const json = monthToJson(book, running.month, modified, date);
+  // a day added late (earlier than a day already in the file) still shows the month up to the newest day
+  const newest = running.days[running.days.length - 1];
+  const upTo = newest !== undefined && newest > date ? newest : date;
+  const json = monthToJson(book, running.month, modified, upTo);
   if (!json.ok) return json;
   const hash = sha256Hex(json.value);
-  const layout = runningDayLayout(book, date, modified, hash);
+  const layout = runningDayLayout(book, date, modified, hash, upTo);
 
   let doc: PDFDocument;
   try {
@@ -359,7 +363,7 @@ export async function appendRunningDay(
   w.paragraph(layout.attachmentNote, 8);
   w.line(layout.hashLine, 8);
   w.line(layout.created, 8);
-  const stand = dateLabel(date);
+  const stand = dateLabel(upTo);
   w.footers((i, n) => `Stand ${stand}, Seite ${i + 1} von ${n}`);
   await doc.flush();
 
@@ -392,7 +396,7 @@ export async function appendRunningDay(
       data,
       mimeType: 'application/json',
       // the checksum is printed on the page; it is not repeated here
-      description: `Stand bis ${date}, maschinenlesbar`,
+      description: `Stand bis ${upTo}, maschinenlesbar`,
       modified: pdfDate(modified),
       relationship: 'Data',
     });
