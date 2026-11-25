@@ -34,9 +34,10 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
   `*.zeiterfassung.json`).
 - Dependencies `local-vault` (tag `v0.1.0`) and `rad-navi` (tag `v0.1.1`) come by Git tag; their install
   scripts build them (`prepare`). Tags are changed only with Tobias' OK.
-- **Zeitstempel library (TEMPORARY pin):** `zeitstempel` is pinned to commit `e98ab3e` (PR `zeitstempel#4`: relay
-  authentication, batch mode, solo stamps, client `auth`/`mode`; built on install by its `prepare`) until Tobias
-  approves a tag. The app uses `createRelayClient` through the thin adapter `src/io/anchorService.ts` (German
+- **Zeitstempel library (TEMPORARY pin):** `zeitstempel` is pinned to commit `bcc7333` (its `main` after PR
+  `zeitstempel#4`: relay authentication v2, batch mode, solo stamps, client `auth`/`mode`; built on install by its
+  `prepare`). Tag `v0.2.0` was approved but is **on hold** (2026-11-25): PR `zeitstempel#2` meanwhile added a second
+  client `zeitstempel/client` (auth v3, evidence format) that is not on `main` yet; tag after the two are merged. The app uses `createRelayClient` through the thin adapter `src/io/anchorService.ts` (German
   texts stay in the app; timeout 80 s; **every stamp `solo`**, because a batched token stamps the batch root,
   not the caller's hash, and could not be a PDF document time stamp). `services.json` comes from the package
   export; `anchors/*.pem` are still read by path (Vite's glob takes paths only).
@@ -168,6 +169,10 @@ npm run build
   written as hex). The 180 old slots `monatspdf-JJJJ-MM` stay declared read-only for a one-time migration
   (drop later with Tobias' OK). Running PDFs are **not in the backup**; purging a month deletes its running
   PDF. Days added after a month's PDF was saved out get no running PDF. MT-29 to MT-36 never run.
+- **Clock warning (Tobias 2026-11-25):** when the device clock differs from the relay's `Date` by more than 30 s, the
+  month page shows „Die Uhr dieses Geräts geht … – bitte … stellen“ (`clockWarningText`, `ClockWarning`); nothing
+  is blocked. The e2e scenario „all services time out (504)“ once failed with a leftover 429 pause text and passed
+  on the rerun (timing-dependent; 49/49 on 2026-11-25).
 - **Device key and freshness (2026-11-25):** the key is usable (not readable) by anyone holding the unlocked
   device. A token must not be older than the send time − 60 s nor later than now + 5 min; **when the device
   clock differs from the relay's `Date` by more than 30 s, this window uses the relay's clock** (otherwise a
