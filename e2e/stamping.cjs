@@ -1,4 +1,4 @@
-const { open, go, enterKey, keyText } = require('./lib.cjs');
+const { open, go, enterKey, keyText, syncClock } = require('./lib.cjs');
 const fs = require('fs');
 const OUT = require('node:path').join(__dirname, '..', '.tmp', 'e2e', 'out');
 fs.mkdirSync(OUT, { recursive: true });
@@ -10,6 +10,8 @@ const ok = (n, c, d = '') => {
 const text = (p) => p.evaluate(() => document.body.innerText);
 const ctl = async (v) => (await fetch('http://localhost:8791/mode' + (v ? `?v=${v}` : ''))).json();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** The head of the relay authentication v3: v3.<kid>.<ts ms>.<jti>.<sig>. */
+const AUTH_V3 = /^v3\.e2e-[a-z-]+\.\d{13}\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{86}$/;
 (async () => {
   const { browser, ctx, page, log } = await open();
   const reqs = [];
@@ -22,8 +24,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         auth: r.headers()['x-zeitstempel-auth'] ?? null,
       });
   });
+  const statuses = [];
+  page.on('response', (r) => {
+    if (r.url().startsWith('http://localhost:8790/')) statuses.push(r.status());
+  });
   page.on('dialog', (d) => d.accept());
   await page.clock.install({ time: new Date() });
+  await syncClock(page, 0);
   await page.goto('http://localhost:5178/');
   await page.waitForTimeout(1500);
   const btn = (n) => page.getByRole('button', { name: n, exact: true });
@@ -53,6 +60,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   };
   const nstamp = async () => {
     await page.clock.fastForward('01:10');
+    await syncClock(page); // relay and service follow the device clock (not a wrong-clock scenario)
     await go(page, 'Stempeln');
     const b = (await btn('Pause Beginn').isEnabled()) ? 'Pause Beginn' : 'Pause Ende';
     await btn(b).click();
@@ -65,6 +73,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const pressAnchor = async () => {
     await btn('Jetzt extern stempeln').click();
     await page.waitForTimeout(1500);
+    // the client may wait inside the call (Retry-After of a 429 or 503 busy): until the button is free
+    for (let t = 0; t < 140_000 && !(await btn('Jetzt extern stempeln').isEnabled()); t += 500) {
+      await page.waitForTimeout(500);
+    }
   };
 
   // --- 0 off by default
@@ -142,9 +154,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await dismiss();
   ok(
     'refused keys: only signed POSTs went out, never the key itself',
-    reqs
-      .filter((r) => r.m === 'POST')
-      .every((r) => /^v2\.e2e-[a-z-]+\.\d+\.[A-Za-z0-9_-]{86}$/.test(r.auth)) &&
+    reqs.filter((r) => r.m === 'POST').every((r) => AUTH_V3.test(r.auth)) &&
       !JSON.stringify(reqs).includes(secret.slice(0, 16)),
     JSON.stringify(reqs.map((r) => r.auth)),
   );
@@ -170,11 +180,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     row.replace(/\s+/g, ' '),
   );
   const posts = reqs.filter((r) => r.m === 'POST');
-  const gets = reqs.filter((r) => r.m === 'GET');
   ok(
-    'only relay requests, GET services + POST stamp',
-    reqs.every((r) => r.u.startsWith('http://localhost:8790/v1/')) &&
-      gets.length >= 1 &&
+    'only relay requests: POST stamp (no list of services any more)',
+    reqs.every((r) => r.m === 'POST' && r.u.startsWith('http://localhost:8790/v1/stamp/')) &&
       posts.length === 1,
     reqs.map((r) => r.m + ' ' + r.u).join(', '),
   );
@@ -187,8 +195,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     posts[0].b,
   );
   ok(
-    'POST signed with the device key (X-Zeitstempel-Auth v2.e2e-geraet.…)',
-    /^v2\.e2e-geraet\.\d+\.[A-Za-z0-9_-]{86}$/.test(posts[0].auth ?? ''),
+    'POST signed with the device key (X-Zeitstempel-Auth v3.e2e-geraet.<ms>.<jti>.<sig>)',
+    AUTH_V3.test(posts[0].auth ?? '') && posts[0].auth.startsWith('v3.e2e-geraet.'),
     posts[0].auth,
   );
   await page.screenshot({ path: OUT + '/month-ok.png', fullPage: true });
@@ -278,27 +286,66 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   ok('anchors still 2 after tampering', (await anchorCount()) === 2);
   await page.unroute('**/v1/stamp/**');
 
-  // --- 4 rate limit
-  let a = '';
-  for (let i = 0; i < 6 && !/vorerst/.test(a); i++) {
-    await nstamp();
-    await toMonth();
-    await pressAnchor();
-    a = await alertText();
-    if (a) await dismiss();
+  // --- 4 rate limit: the client waits Retry-After itself (at most 3 sends per service in 130 s)
+  {
+    let seen = false;
+    let added = false;
+    for (let i = 0; i < 6 && !seen; i++) {
+      await nstamp();
+      await toMonth();
+      const n = await anchorCount();
+      const from = statuses.length;
+      await pressAnchor();
+      const got = statuses.slice(from);
+      seen = got.includes(429) || got.includes(503);
+      added = (await anchorCount()) === n + 1 && got.at(-1) === 200;
+      if (seen)
+        ok(
+          'real 429/503 busy of the relay: the client waited Retry-After and sent again, anchor added, no red box',
+          added && (await alertText()) === '',
+          got.join(',') + ' | ' + (await alertText()),
+        );
+      await dismiss();
+    }
+    if (!seen) ok('real 429/503 busy of the relay seen within 6 stamps', false, statuses.join(','));
   }
-  ok('429 shown as pause message', /nimmt vorerst keine weitere Anfrage an/.test(a), a);
-  const nreq = reqs.length;
+  await sleep(62000);
+  // three refusals in a row (the stand-in answers 429 itself): then the pause, nothing is sent during it
+  let refusals = 0;
+  await page.route('**/v1/stamp/**', async (route) => {
+    refusals++;
+    await route.fulfill({
+      status: 429,
+      headers: {
+        'access-control-allow-origin': 'http://localhost:5178',
+        'access-control-expose-headers': 'Retry-After, Date',
+        'content-type': 'application/json',
+        'retry-after': '20',
+      },
+      body: JSON.stringify({ error: 'rate-limited' }),
+    });
+  });
+  await nstamp();
+  await toMonth();
+  await pressAnchor();
+  let a = await alertText();
+  ok(
+    '429 three times: pause message after 3 sends',
+    /nimmt vorerst keine weitere Anfrage an/.test(a) && refusals === 3,
+    a + ' | sends ' + refusals,
+  );
+  await dismiss();
+  const nreq = refusals;
   await pressAnchor();
   a = await alertText();
   ok(
     'during the pause: same message, no request sent',
-    /vorerst/.test(a) && reqs.length === nreq,
-    a + ' reqs ' + (reqs.length - nreq),
+    /vorerst/.test(a) && refusals === nreq,
+    a + ' sends ' + (refusals - nreq),
   );
   await dismiss();
-  await page.clock.fastForward('01:30');
-  await sleep(62000);
+  await page.unroute('**/v1/stamp/**');
+  await sleep(21000);
   await pressAnchor();
   st = await state();
   ok('after Retry-After the stamp works again', st.s === 'ok', st.t + ' | ' + (await alertText()));
@@ -356,12 +403,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await ctl('normal');
   await sleep(62000);
   await page.clock.fastForward('01:30');
+  // the relay and the service go back to the true time: the device clock is now about a day ahead
+  await syncClock(page, 0);
   await pressAnchor();
-  st = await state();
+  a = await alertText();
   ok(
-    'device clock 25 h ahead: the token (true time) still covers the old stamp, no skew refusal',
-    st.s === 'ok' && (await alertText()) === '',
-    st.t + ' | ' + (await alertText()),
+    'device clock a day ahead of the relay: 401 (the client corrects at most 65 s), no anchor',
+    /nicht angenommen/.test(a) && /401/.test(a),
+    a,
   );
   await dismiss();
   {
@@ -371,29 +420,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       .innerText()
       .catch(() => '');
     ok(
-      'clock warning shown (device clock 25 h ahead)',
+      'clock warning shown (device clock a day ahead, from the relay’s Date)',
       /geht .* vor – bitte die Uhrzeit des Geräts stellen/.test(w),
       w,
     );
   }
-  // the device clock goes back by 3 hours: a token that is "from the future" is refused (anchor-skew)
   await page.clock.setSystemTime(new Date(Date.now() - 3 * 3600e3));
-  // a stamp made now carries the set-back device time: save a day through the form
-  const devToday = await page.evaluate(() => new Date().toISOString().slice(0, 10));
-  await go(page, 'Tag eingeben');
-  await page.getByLabel('Datum').fill(devToday);
-  await page.getByLabel('Kommen', { exact: true }).fill('00:00');
-  await page.getByLabel(/^Gehen \(leer/).fill('23:59');
-  await btn('Speichern').click();
-  await page.waitForTimeout(500);
   await toMonth();
   await sect.getByText(/^Externe Zeitstempel/).click();
   const n0 = await anchorCount();
   await pressAnchor();
   a = await alertText();
   ok(
-    'device clock 3 h behind the service: refused (anchor-skew), no anchor added',
-    /passt nicht zur Geräteuhr/.test(a) && (await anchorCount()) === n0,
+    'device clock 3 h behind the relay: 401, no anchor added',
+    /nicht angenommen/.test(a) && /401/.test(a) && (await anchorCount()) === n0,
     a,
   );
   await dismiss();
@@ -409,8 +449,20 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       w,
     );
   }
+  // the device clock is right again: stamping works again (anchor-skew itself is not reachable with a
+  // real relay any more: a clock more than 65 s off gets 401 first; tests/anchors.test.ts covers it)
+  await page.clock.setSystemTime(new Date());
+  await sleep(1000);
+  await pressAnchor();
+  a = await alertText();
+  ok(
+    'device clock right again: the anchor is added, no red box',
+    a === '' && (await anchorCount()) === n0 + 1,
+    a,
+  );
+  await dismiss();
   st = await state();
-  ok('status stays due after the refusal', st.s === 'due' || st.s === 'overdue', st.t);
+  ok('status ok again', st.s === 'ok', st.t);
   const skewRow = await sect.locator('summary', { hasText: 'Stempelkette' }).count();
   ok('chain section present', skewRow === 1);
 

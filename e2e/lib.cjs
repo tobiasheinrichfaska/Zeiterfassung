@@ -70,3 +70,13 @@ exports.enterKey = async (page, name) => {
   await page.waitForTimeout(500);
   return page.locator('form[aria-label="Geräteschlüssel"] p[data-device-key]').innerText();
 };
+
+/**
+ * Lets the stand-in relay and service run on the page's clock (harness `/clock`): after the device clock
+ * was moved for a scenario that is not about a wrong clock. `offsetMs` overrides (0 = real time).
+ */
+exports.syncClock = async (page, offsetMs) => {
+  const off = offsetMs ?? (await page.evaluate(() => Date.now())) - Date.now();
+  await fetch('http://localhost:8791/clock?offset=' + Math.round(off));
+  return off;
+};

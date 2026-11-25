@@ -1,7 +1,7 @@
 // Running monthly PDF in headless Chromium (MT-29 to MT-36, in part) against the local stand-in relay.
 // Start the harness first (see README). Needs Node >= 22; the PDF is read back with the app's own code
 // (loaded through Vite's SSR loader) and every document time stamp is checked with `openssl ts -verify`.
-const { open, go, enterKey } = require('./lib.cjs');
+const { open, go, enterKey, syncClock } = require('./lib.cjs');
 const fs = require('fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -102,6 +102,7 @@ async function checker() {
   page.on('dialog', (d) => d.accept());
   await ctl('normal');
   await page.clock.install({ time: new Date() });
+  await syncClock(page, 0);
   await page.goto('http://localhost:5178/');
   await page.waitForTimeout(1500);
   const btn = (n) => page.getByRole('button', { name: n, exact: true });
@@ -127,6 +128,7 @@ async function checker() {
     await btn('Kommen').first().click();
     await sleep(300);
     await page.clock.fastForward(`${String(hoursBetween).padStart(2, '0')}:00:00`);
+    await syncClock(page); // relay and service follow the device clock (not a wrong-clock scenario)
     await btn('Gehen').first().click();
     await sleep(300);
   };
@@ -172,8 +174,8 @@ async function checker() {
   await chk.check(f1, '1 download', [d1]);
   const posts = reqs.filter((r) => r.startsWith('POST'));
   ok(
-    '1 only relay requests (GET services / POST stamp)',
-    reqs.every((r) => r.includes('localhost:8790/v1/')) && posts.length >= 1,
+    '1 only relay requests (POST stamp)',
+    reqs.every((r) => /^POST http:\/\/localhost:8790\/v1\/stamp\//.test(r)) && posts.length >= 1,
     reqs.length + ' reqs, ' + posts.length + ' posts',
   );
 
@@ -192,6 +194,7 @@ async function checker() {
   await sleep(61000); // relay budget per minute
   await ctl('fail504');
   await page.clock.fastForward('24:00:00');
+  await syncClock(page);
   await page.waitForTimeout(500);
   const d2 = await page.evaluate(() => new Date().toISOString().slice(0, 10));
   await stampPage();
@@ -222,6 +225,10 @@ async function checker() {
   await dismiss();
   await ctl('normal');
   await sleep(61000);
+  await syncClock(
+    page,
+    (await page.evaluate(() => Date.now())) + 15 * 60_000 + 10_000 - Date.now(),
+  );
   await page.clock.fastForward('15:10');
   ok(
     '2 relay back: stamped by the 15-minute retry',
@@ -244,6 +251,7 @@ async function checker() {
   const nextKey = next.toISOString().slice(0, 7);
   await sleep(61000);
   await page.clock.setSystemTime(next);
+  await syncClock(page);
   await page.reload();
   await sleep(3000);
   console.log('device date after set', await page.evaluate(() => new Date().toISOString()));
@@ -306,6 +314,7 @@ async function checker() {
   await page.clock.setSystemTime(
     new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth(), 8, 9, 0, 0)),
   );
+  await syncClock(page);
   await page.reload();
   await sleep(3000);
   const dlg = page.getByRole('dialog', { name: 'Monatsdatei speichern' });
@@ -338,6 +347,7 @@ async function checker() {
   const goBtn = dlg.getByRole('button', { name: 'Gehen', exact: true });
   ok('3b stamping works in the overlay (Kommen -> Gehen enabled)', await goBtn.isEnabled());
   await page.clock.fastForward('02:00:00');
+  await syncClock(page);
   await goBtn.click();
   await sleep(500);
   ok('3b overlay still there after stamping', (await dlg.count()) === 1);
@@ -401,6 +411,7 @@ async function checker() {
     bad.length === 0,
     bad.join(' | '),
   );
+  await syncClock(page, 0);
   fs.writeFileSync(OUT + '/runningpdf-results.txt', res.join('\n'));
   console.log(res.filter((r) => r.startsWith('FAIL')).length + ' FAIL of ' + res.length);
   await browser.close();
