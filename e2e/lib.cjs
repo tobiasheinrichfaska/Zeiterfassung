@@ -52,3 +52,21 @@ exports.go = async (page, name) => {
     await page.waitForTimeout(800);
   }
 };
+
+/** The device key text of a test key (.tmp/e2e/keys/<name>.txt, made by make-keys.cjs). */
+exports.keyText = (name) =>
+  require('node:fs')
+    .readFileSync(
+      require('node:path').join(__dirname, '..', '.tmp', 'e2e', 'keys', name + '.txt'),
+      'utf8',
+    )
+    .trim();
+/** Enters a device key in the settings, as an employee would (paste, „Schlüssel speichern“). */
+exports.enterKey = async (page, name) => {
+  const field = page.locator('input[name="geraeteschluessel"]');
+  if (!(await field.isVisible().catch(() => false))) await exports.go(page, 'Einstellungen');
+  await field.fill(exports.keyText(name));
+  await page.getByRole('button', { name: 'Schlüssel speichern', exact: true }).click();
+  await page.waitForTimeout(500);
+  return page.locator('form[aria-label="Geräteschlüssel"] p[data-device-key]').innerText();
+};

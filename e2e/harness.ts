@@ -7,6 +7,7 @@ const ZS = process.env.ZEITSTEMPEL_DIR ?? new URL('../../zeitstempel', import.me
 const { createRelayServer } = await import(`${ZS}/relay/server.ts`);
 const { loadServices } = await import(`${ZS}/relay/load.ts`);
 const { UpstreamError } = await import(`${ZS}/relay/upstream.ts`);
+const { readKeyFile } = await import(`${ZS}/relay/keys.ts`);
 import { randomBytes } from 'node:crypto';
 
 const D = new URL('../.tmp/e2e/pki/', import.meta.url).pathname;
@@ -37,6 +38,16 @@ const upstream = async (target: { url: string }, body: Uint8Array) => {
   };
 };
 const origins = (process.env.RELAY_ORIGINS ?? 'http://localhost:5178').split(',');
+// the authenticated relay: the key file of the test keys (node e2e/make-keys.cjs first)
+const keyFile = readKeyFile(
+  JSON.parse(
+    readFileSync(new URL('../.tmp/e2e/keys/relay-keys.json', import.meta.url).pathname, 'utf8'),
+  ),
+);
+if (!keyFile.ok) throw new Error('key file: ' + keyFile.reason);
+// collecting operation on (default 15 s, E2E_BATCH_MS=0 for single operation), so `mode: "solo"` and the
+// solo permission of the key are really checked (without it the relay ignores `mode`)
+const batchMs = Number(process.env.E2E_BATCH_MS ?? '15000');
 const { server } = createRelayServer({
   services,
   origins,
@@ -44,6 +55,8 @@ const { server } = createRelayServer({
   upstream,
   random: (n) => new Uint8Array(randomBytes(n)),
   now: () => Date.now(),
+  keys: keyFile.value,
+  ...(batchMs > 0 ? { batch: { windowMs: batchMs, max: 128 } } : {}),
 });
 server.listen(8790, '127.0.0.1');
 
@@ -69,4 +82,4 @@ http
     r.end(page);
   })
   .listen(5178, '127.0.0.1');
-console.log('harness up');
+console.log(`harness up (auth on, ${batchMs > 0 ? `batch ${batchMs} ms` : 'single operation'})`);

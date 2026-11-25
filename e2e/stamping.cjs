@@ -1,4 +1,4 @@
-const { open, go } = require('./lib.cjs');
+const { open, go, enterKey, keyText } = require('./lib.cjs');
 const fs = require('fs');
 const OUT = require('node:path').join(__dirname, '..', '.tmp', 'e2e', 'out');
 fs.mkdirSync(OUT, { recursive: true });
@@ -15,7 +15,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const reqs = [];
   page.on('request', (r) => {
     if (!r.url().startsWith('http://localhost:5178'))
-      reqs.push({ m: r.method(), u: r.url(), b: r.postData() });
+      reqs.push({
+        m: r.method(),
+        u: r.url(),
+        b: r.postData(),
+        auth: r.headers()['x-zeitstempel-auth'] ?? null,
+      });
   });
   page.on('dialog', (d) => d.accept());
   await page.clock.install({ time: new Date() });
@@ -75,11 +80,82 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   ok('relay saved', (await text(page)).includes('Gespeichert.'));
   ok('no request before the first stamp', reqs.length === 0, JSON.stringify(reqs));
 
-  // --- 1 due -> ok
+  // --- 0a without a device key: the device is not unlocked, nothing is sent, recording works
   await stamp('Kommen');
   await toMonth();
   let st = await state();
   ok('status due after a stamp', st.s === 'due', st.t);
+  ok(
+    'without a device key: month page says „Gerät nicht freigeschaltet (Geräteschlüssel fehlt)“',
+    /Gerät nicht freigeschaltet \(Geräteschlüssel fehlt\)/.test(await sect.innerText()),
+    await sect.innerText(),
+  );
+  ok(
+    'without a device key: „Jetzt extern stempeln“ disabled',
+    !(await btn('Jetzt extern stempeln').isEnabled()),
+  );
+  await sleep(1500);
+  ok('without a device key: no request at all', reqs.length === 0, JSON.stringify(reqs));
+
+  // --- 0b a key the relay does not know: 401, the app says the key is not accepted, no anchor
+  const shown = await enterKey(page, 'unbekannt');
+  const secret = keyText('unbekannt').split('.')[1];
+  ok(
+    'key entered: only the key id is shown, the field is emptied',
+    /e2e-unbekannt/.test(shown) &&
+      !(await text(page)).includes(secret.slice(0, 16)) &&
+      (await page.locator('input[name="geraeteschluessel"]').inputValue()) === '',
+    shown,
+  );
+  ok(
+    'the key is not in the browser’s plain storage',
+    await page.evaluate(
+      (k) =>
+        !Object.keys(localStorage).some((n) => (localStorage.getItem(n) ?? '').includes(k)) &&
+        !Object.keys(sessionStorage).some((n) => (sessionStorage.getItem(n) ?? '').includes(k)),
+      secret.slice(0, 16),
+    ),
+  );
+  await toMonth();
+  await pressAnchor();
+  let keyAlert = await alertText();
+  ok(
+    'unknown key: „Geräteschlüssel wird vom Zeitstempeldienst nicht angenommen“ (401)',
+    /Geräteschlüssel wird vom Zeitstempeldienst nicht angenommen/.test(keyAlert) &&
+      /401/.test(keyAlert),
+    keyAlert,
+  );
+  ok('unknown key: no anchor', (await anchorCount()) === 0);
+  await dismiss();
+
+  // --- 0c a key without the solo permission: 403 solo-not-allowed, no anchor
+  await enterKey(page, 'ohne-solo');
+  await toMonth();
+  await pressAnchor();
+  keyAlert = await alertText();
+  ok(
+    'key without solo permission: not accepted (403, ohne Solo-Erlaubnis)',
+    /nicht angenommen/.test(keyAlert) && /Solo-Erlaubnis/.test(keyAlert),
+    keyAlert,
+  );
+  ok('key without solo permission: no anchor', (await anchorCount()) === 0);
+  await dismiss();
+  ok(
+    'refused keys: only signed POSTs went out, never the key itself',
+    reqs
+      .filter((r) => r.m === 'POST')
+      .every((r) => /^v2\.e2e-[a-z-]+\.\d+\.[A-Za-z0-9_-]{86}$/.test(r.auth)) &&
+      !JSON.stringify(reqs).includes(secret.slice(0, 16)),
+    JSON.stringify(reqs.map((r) => r.auth)),
+  );
+
+  // --- 0d the right key (type 2, solo): the device is unlocked (an anchor that is due is asked for at once)
+  reqs.length = 0;
+  const right = await enterKey(page, 'geraet');
+  ok('right key entered: shows e2e-geraet', /e2e-geraet/.test(right), right);
+
+  // --- 1 due -> ok
+  await toMonth();
   await sect.locator('summary').first().click();
   await pressAnchor();
   st = await state();
@@ -104,9 +180,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   );
   const body = JSON.parse(posts[0].b);
   ok(
-    'POST body is only a 43-char base64url hash',
-    Object.keys(body).join() === 'hash' && /^[A-Za-z0-9_-]{43}$/.test(body.hash),
+    'POST body is only a 43-char base64url hash and mode solo',
+    Object.keys(body).join() === 'hash,mode' &&
+      /^[A-Za-z0-9_-]{43}$/.test(body.hash) &&
+      body.mode === 'solo',
     posts[0].b,
+  );
+  ok(
+    'POST signed with the device key (X-Zeitstempel-Auth v2.e2e-geraet.…)',
+    /^v2\.e2e-geraet\.\d+\.[A-Za-z0-9_-]{86}$/.test(posts[0].auth ?? ''),
+    posts[0].auth,
   );
   await page.screenshot({ path: OUT + '/month-ok.png', fullPage: true });
 
@@ -137,8 +220,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await page.route('**/v1/stamp/**', async (route) => {
     const r = await route.fetch();
     const j = await r.json();
-    good.push(j);
-    if (tamper) tamper(j);
+    // only a stamp is changed: a 401 (the device clock runs ahead after fastForward; the client corrects
+    // it once by the relay's Date and signs again) passes as it is
+    if (r.status() === 200) {
+      good.push(j);
+      if (tamper) tamper(j);
+    }
     await route.fulfill({ status: r.status(), headers: r.headers(), body: JSON.stringify(j) });
   });
   const attempt = async (name, f, expectRx) => {

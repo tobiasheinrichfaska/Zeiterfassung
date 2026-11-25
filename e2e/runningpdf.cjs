@@ -1,7 +1,7 @@
 // Running monthly PDF in headless Chromium (MT-29 to MT-36, in part) against the local stand-in relay.
 // Start the harness first (see README). Needs Node >= 22; the PDF is read back with the app's own code
 // (loaded through Vite's SSR loader) and every document time stamp is checked with `openssl ts -verify`.
-const { open, go } = require('./lib.cjs');
+const { open, go, enterKey } = require('./lib.cjs');
 const fs = require('fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
@@ -144,6 +144,9 @@ async function checker() {
     .selectOption('http://localhost:8790');
   await btn('Speichern').click();
   await sleep(500);
+  // the device is unlocked by its device key (key type 2: solo stamps, which a PDF time stamp needs)
+  const shown = await enterKey(page, 'geraet');
+  ok('0 device key entered (e2e-geraet)', /e2e-geraet/.test(shown), shown);
   const d1 = await page.evaluate(() => new Date().toISOString().slice(0, 10));
   console.log('device date', d1);
 
