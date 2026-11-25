@@ -34,13 +34,13 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
   `*.zeiterfassung.json`).
 - Dependencies `local-vault` (tag `v0.1.0`) and `rad-navi` (tag `v0.1.1`) come by Git tag; their install
   scripts build them (`prepare`). Tags are changed only with Tobias' OK.
-- **Zeitstempel library (TEMPORARY pin):** `zeitstempel` is pinned to commit `bcc7333` (its `main` after PR
-  `zeitstempel#4`: relay authentication v2, batch mode, solo stamps, client `auth`/`mode`; built on install by its
-  `prepare`). Tag `v0.2.0` was approved but is **on hold** (2026-11-25): PR `zeitstempel#2` meanwhile added a second
-  client `zeitstempel/client` (auth v3, evidence format) that is not on `main` yet; tag after the two are merged. The app uses `createRelayClient` through the thin adapter `src/io/anchorService.ts` (German
-  texts stay in the app; timeout 80 s; **every stamp `solo`**, because a batched token stamps the batch root,
-  not the caller's hash, and could not be a PDF document time stamp). `services.json` comes from the package
-  export; `anchors/*.pem` are still read by path (Vite's glob takes paths only).
+- **Zeitstempel library (TEMPORARY pin):** `zeitstempel` is pinned to commit `a3534d5` (its `main` after PRs #8/#9:
+  one client `zeitstempel/client`, relay auth v3, evidence v1; built on install by its `prepare`) until the PC pushes
+  the approved tag `v0.2.0` on that commit (then switch to `#v0.2.0`). The app uses `createRelayClient` from
+  `zeitstempel/client` through the thin adapter `src/io/anchorService.ts` (German texts stay in the app; timeout
+  130 s; no `GET /v1/services`: services and trust come from the package's `services.json`/`anchors`). **Audience**
+  from the build variable `VITE_TIMESTAMP_AUDIENCE` (default: the relay origin). **Every stamp `mode: 'solo'`**; the
+  running PDF takes only `kind: 'single'` evidence (a batched token stamps the batch root, not the PDF digest).
 - **Device key (decision Tobias 2026-11-25):** one key per device; a device is unlocked by pasting
   `<kid>.<private key>` (`make-key --solo` of `zeitstempel`) in the settings; stored encrypted in the vault slot
   `geraeteschluessel`, imported as a non-extractable P-256 key, never in plain storage or the backup; only the
@@ -91,7 +91,7 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
 | `src/logic/view.ts`                                                                                          | Stamp state and buttons (`STAMP_ENABLED`), form fields ↔ input (`parseDayForm`, `dayToForm`, `parseSettingsForm`), month labels, row texts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `src/logic/pdf.ts`                                                                                           | `monthLayout`, `monthToPdf` (pdf-lib 1.17.1): readable table, logged changes of the month, JSON attachment, SHA-256 of the attachment in the footer, several pages when needed                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `src/logic/runningPdf.ts`                                                                                    | Running monthly PDF: `startRunningPdf` (title page, PDF/A-3 pieces, attachment `zeiterfassung-JJJJ-MM-beginn.json`), `appendRunningDay` (one revision per day: page(s) + `zeiterfassung-JJJJ-MM-tag-TT.json`, refuses a day already in, another month, a running day), `runningPdfState` (days, revisions, stamps, newest revision stamped, `attachmentChanges`)                                                                                                                                                                                                                                                                                                  |
-| `src/logic/runningPlan.ts`, `src/io/runningPdfStore.ts`, `src/io/runningPdfWork.ts`                          | Which ended days to append (pure); vault slots `monatspdf-JJJJ-MM` (Base64); one run: create, append, save after each day, stamp                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `src/logic/runningPlan.ts`, `src/io/runningPdfStore.ts`, `src/io/runningPdfWork.ts`                          | Which ended days to append (pure); vault slots `monatspdf-a`/`-b` (Base64); one run: create, append, save after each day, stamp                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `src/logic/deviceKey.ts`, `src/io/deviceKey.ts`, `src/ui/DeviceKeySettings.tsx`, `docs/geraeteschluessel.md` | Device key: strict parse of `<kid>.<key>` (codes `device-key-*`), import as non-extractable CryptoKey, vault slot `geraeteschluessel`, settings field; how-to for creating and revoking keys                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `src/logic/draft.ts`                                                                                         | Unsaved form input (`Drafts`, strict reader, `DRAFT_SLOT`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `src/logic/icc.ts`, `src/logic/chars.ts`                                                                     | The sRGB profile generated in code (PDF/A output intent); `keepSupported` (characters the font lacks become „?“)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -166,8 +166,7 @@ npm run build
   most 1,200,000 characters per slot (`PDF_SLOT_LIMIT`, ~900 KB PDF); a larger state is not written and forces
   the save. **Sizes** (22 days, 6 KB token per stamp): ~518 KB ≈ 0.69 M characters; the start file 26 KB (full
   regular font once, shared by all day pages), ~4 KB per day page, ~18 KB per stamp (the 8192-byte reserve is
-  written as hex). The 180 old slots `monatspdf-JJJJ-MM` stay declared read-only for a one-time migration
-  (drop later with Tobias' OK). Running PDFs are **not in the backup**; purging a month deletes its running
+  written as hex). Running PDFs are **not in the backup**; purging a month deletes its running
   PDF. Days added after a month's PDF was saved out get no running PDF. MT-29 to MT-36 never run.
 - **Clock warning (Tobias 2026-11-25):** when the device clock differs from the relay's `Date` by more than 30 s, the
   month page shows „Die Uhr dieses Geräts geht … – bitte … stellen“ (`clockWarningText`, `ClockWarning`); nothing
@@ -181,6 +180,14 @@ npm run build
   format (later option). Checked only in headless Chromium against a local relay with test keys (`e2e/`:
   stamping 47/47 incl. no key, unknown key → 401, key without solo → 403; running PDF 53/53); `retention.cjs`
   not rerun; never against a real relay or on a real device.
+- **Anchors as evidence (book format 4, 2026-11-25):** an anchor is `{coveredN, headHash, evidence}` (evidence v1 of
+  `zeitstempel/client`, read strictly with `readEvidence`, its hash = `headHash`, token at most 16384 characters);
+  UI and PDF read service, genTime and serial from it; the JSON attachment is version 3. Versions 1–3 are still read
+  for workdays; a format-3 anchor is refused (`old-anchor-format`; no real data existed). Freshness is the client's
+  (`minGenTime`, one clock correction of at most 65 s after a 401): a device clock off by more than 65 s gets a 401.
+  The clock warning is computed from the relay's `Date` header. **Open:** the client takes one combined trust list
+  for all services, so a token of any shipped service passes under any service id still offered. e2e needs
+  `faketime`, `NODE24` and `ZEITSTEMPEL_DIR` (51/51 stamping, 53/53 running PDF, 17/17 retention on 2026-11-25).
 - One working day per date: a split shift (morning and evening) cannot be recorded as two shifts; use one
   day with a long pause.
 - The stamp clock trusts the device clock. Nothing proves the time (a later stage adds timestamps from a
