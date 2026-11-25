@@ -1,19 +1,26 @@
-import { createRelayClient, type FetchLike, type Reason } from 'zeitstempel';
+import {
+  createRelayClient,
+  type ClientFailure,
+  type FetchLike,
+  type RelayClient,
+} from 'zeitstempel/client';
 import {
   ANCHOR_FAILURE_TEXTS,
   anchorFromOutcome,
   anchorRequest,
   hexToBytes,
+  relayOrigin,
   type Anchor,
   type AnchorFailure,
   type AnchorOutcome,
   type TimeBook,
 } from '../logic/index.ts';
-import { trustedServices, verifyTimestampToken } from './zeitstempel.ts';
+import { trustedServices } from './zeitstempel.ts';
 
 /**
  * The external time stamping service as the app sees it: it takes the hash of the chain head and gives
- * back a **verified** token with the time and serial it carries. The logic layer never touches the network.
+ * back the **evidence** of a verified token (`zeitstempel/client`, format v1). The logic layer never touches
+ * the network.
  */
 export interface AnchorService {
   anchor(hashHex: string): Promise<AnchorOutcome>;
@@ -29,46 +36,36 @@ export interface DeviceAuth {
 }
 
 /**
- * Deadline of one call. The authenticated relay waits up to `RELAY_MAX_WAIT_MS` (30 s) for its turn at the
- * service, then up to about 17 s for body, service and check (47 s in single operation, more in collecting
- * operation): 80 s covers both with room.
+ * Total deadline of one stamp (all attempts, waits and services): the client's default, the safe upper
+ * bound of `zeitstempel` docs/client.md („Fristen“).
  */
-export const RELAY_TIMEOUT_MS = 80_000;
-
-/** How far before the sending a token's time may lie (the relay's own `genTimeSlackMs`, clock differences). */
-export const FRESHNESS_SLACK_MS = 60_000;
+export const RELAY_TIMEOUT_MS = 130_000;
 
 /**
- * From this difference between the device clock and the relay's `Date` on, the freshness check uses the
- * relay's clock (the library's own `clockFixMs`, which it uses for the signed header after a 401).
+ * From this difference between the device clock and the relay's `Date` on, the app tells the person
+ * (`clockWarningText`). Freshness itself is the client's: `minGenTime` from the send time, corrected by the
+ * relay's `Date` after a 401 by at most `maxClockOffsetMs` (65 s).
  */
 export const CLOCK_FIX_MS = 30_000;
 
 /** What the adapter needs from the outside; all of it can be replaced in tests. */
 export interface RelayOptions {
   fetch?: typeof fetch;
-  /** Deadline of one call; default `RELAY_TIMEOUT_MS`. */
+  /** Total deadline of one stamp; default `RELAY_TIMEOUT_MS`. */
   timeoutMs?: number;
-  /** The device key; without it requests go unsigned (only a relay started with `RELAY_AUTH=off` takes them). */
-  auth?: DeviceAuth;
-  /**
-   * Wall clock (ms since the epoch): time in the signed header, a `Retry-After` date, and the freshness of a
-   * token (not before sending − 60 s, not after now + 5 min). Default `Date.now()`.
-   */
-  wallNow?: () => number;
-  /**
-   * Milliseconds on a clock for the pause after a 429. Default: the monotonic `performance.now()`, which a
-   * change of the device clock does not move (a clock set back must not stretch the pause).
-   */
+  /** The relay's `RELAY_AUDIENCE`; default the relay's origin (the relay's convention). */
+  audience?: string;
+  /** Wall clock (ms since the epoch): signed header, `Retry-After` date, freshness. Default `Date.now()`. */
   now?: () => number;
-  /** The services the app trusts: id → PEM text of the trust anchors. */
+  /** Monotonic clock (ms): total deadline and the pause after a 429. Default `performance.now()`. */
+  monoNow?: () => number;
+  /** The services the app trusts, in order of preference: id → PEM texts of the trust anchors. */
   trusted?: ReadonlyMap<string, { anchors: string[] }>;
-  verify?: typeof verifyTimestampToken;
   /** Called with the relay's clock minus the device clock (ms) whenever the adapter learns a new offset. */
   onClockOffset?: (offsetMs: number) => void;
 }
 
-const VERIFY_TEXTS: Partial<Record<Reason, string>> = {
+const VERIFY_TEXTS: Record<string, string> = {
   'imprint-mismatch': 'der bestätigte Hash ist ein anderer',
   'signature-invalid': 'die Signatur stimmt nicht',
   'untrusted-chain': 'die Zertifikatskette endet bei keinem bekannten Anker',
@@ -80,128 +77,170 @@ const VERIFY_TEXTS: Partial<Record<Reason, string>> = {
   'time-too-old': 'die bestätigte Zeit liegt vor der Anfrage (rückdatiert)',
 };
 
-/** The library's English detail `status 502, upstream-failed` as the app's German `Status 502, …`. */
-const statusDetail = (detail: string | undefined): string =>
-  (detail ?? '').replace(/^status /, 'Status ');
+const BAD_RESPONSE_TEXTS: Record<string, string> = {
+  serial: 'Seriennummer weicht vom Token ab',
+  shape: 'unerwartete Form oder andere Dienstkennung als gefragt',
+  mode: 'Sammelbeleg statt Einzelstempel',
+  json: 'kein JSON',
+  token: 'Token nicht lesbar',
+  size: 'Antwort zu groß',
+  evidence: 'Beleg nicht lesbar',
+};
 
-/** The library's failure (code and English detail) as the app's failure kind with a German detail. */
-function outcomeOf(failure: { reason: Reason; detail?: string }): AnchorOutcome {
-  const { reason, detail } = failure;
+const seconds = (ms: number) => Math.max(1, Math.ceil(ms / 1000));
+
+/** The client's failure (code, status, relay code) as the app's failure kind with a German detail. */
+function outcomeOf(failure: ClientFailure, pausedMs: number): AnchorOutcome {
   const no = (kind: AnchorFailure, text: string): AnchorOutcome => ({
     ok: false,
     reason: kind,
     detail: text,
   });
-  switch (reason) {
-    case 'relay-timeout':
+  const status = `Status ${failure.status ?? '?'}${failure.code ? `, ${failure.code}` : ''}`;
+  switch (failure.reason) {
+    case 'timeout':
       return no('unreachable', 'Zeitüberschreitung');
-    case 'relay-unreachable':
-      return no('unreachable', statusDetail(detail));
-    case 'relay-refused':
-      return no('refused', statusDetail(detail));
-    case 'relay-rate-limited': {
-      const seconds = /(\d+) s/.exec(detail ?? '')?.[1];
-      return no('rate-limited', `bitte in ${seconds ?? '60'} s erneut versuchen`);
-    }
-    case 'no-trusted-service':
-      return no('refused', 'kein Dienst des Weiterreichers ist der App bekannt');
-    case 'relay-bad-response':
-      return no(
-        'bad-response',
-        detail === 'serial differs from the token'
-          ? 'Seriennummer weicht vom Token ab'
-          : detail === 'another service id than asked for'
-            ? 'andere Dienstkennung als gefragt'
-            : (detail ?? ''),
-      );
+    case 'network-error':
+      return no('unreachable', 'keine Antwort');
+    case 'aborted':
+      return no('unreachable', 'abgebrochen');
+    case 'paused':
+      return no('rate-limited', `bitte in ${seconds(pausedMs)} s erneut versuchen`);
+    case 'bad-response':
+      return no('bad-response', BAD_RESPONSE_TEXTS[failure.detail ?? ''] ?? failure.detail ?? '');
     case 'bad-hash':
       return no('bad-response', 'Hash');
-    case 'relay-unauthorized':
-      return no(
-        'unauthorized',
-        /solo-not-allowed/.test(detail ?? '')
-          ? 'Status 403, Schlüssel ohne Solo-Erlaubnis'
-          : statusDetail(detail),
-      );
     case 'bad-key':
     case 'bad-key-id':
       return no('unauthorized', 'Schlüssel nicht verwendbar');
+    case 'bad-options':
+      return no('refused', `Einstellung ungültig (${failure.detail ?? ''})`);
+    case 'relay-error': {
+      const code = failure.status ?? 0;
+      if (code === 401) return no('unauthorized', 'Status 401');
+      if (code === 403 && failure.code === 'solo-not-allowed') {
+        return no('unauthorized', 'Status 403, Schlüssel ohne Solo-Erlaubnis');
+      }
+      if (code === 403 && failure.code === 'service-not-allowed') {
+        return no('unauthorized', 'Status 403, Schlüssel für keinen dieser Dienste');
+      }
+      if (code === 429 || (code === 503 && failure.code === 'busy')) {
+        return no('rate-limited', `bitte in ${seconds(pausedMs || 60_000)} s erneut versuchen`);
+      }
+      if (code >= 500) return no('unreachable', status);
+      return no('refused', status);
+    }
     default:
-      return no('not-verified', VERIFY_TEXTS[reason] ?? reason);
+      return no('not-verified', VERIFY_TEXTS[failure.reason] ?? failure.reason);
   }
 }
 
+/** A relay answer that says „this service is not here for you“: the next service is tried. */
+const serviceMissing = (f: ClientFailure): boolean =>
+  f.reason === 'relay-error' &&
+  ((f.status === 404 && f.code === 'unknown-service') ||
+    (f.status === 403 && f.code === 'service-not-allowed'));
+
 /**
- * The adapter for a time stamp relay: a thin layer over the Zeitstempel library's `createRelayClient`,
- * which does the protocol (`<relay>/v1/services`, `<relay>/v1/stamp/<service>`, only the hash goes out,
- * 429 pause on the monotonic clock, next service on 502/504/network error, and the token is **verified
- * against the hash and the trust anchors shipped with the app**, never taken at the relay's word). This
- * adapter only hands the app's parts in and turns the library's codes into the app's failure kinds and
- * German texts.
+ * The adapter for a time stamp relay: a thin layer over `zeitstempel/client`'s `createRelayClient`, which
+ * does the protocol (signed `POST <relay>/v1/stamp/<service>` with `{"hash", "mode": "solo"}`, clock fix
+ * once after a 401, `Retry-After` and the pause across calls on the monotonic clock, failover on
+ * 5xx/network error) and **verifies every token against the hash and the trust anchors shipped with the
+ * app with a mandatory freshness check**, never taking the relay's word. The adapter hands in the app's
+ * parts (origin, audience, device key, services in the order of `services.json`, their anchors), learns
+ * the relay's clock from `Date` for the clock warning, and turns the client's codes into the app's
+ * failure kinds and German texts. Every stamp is `solo`: a token of a collecting relay would stamp a
+ * tree's root, which is no PAdES document time stamp of the PDF.
+ *
+ * A service the relay does not offer (`404 unknown-service`) or the key may not use
+ * (`403 service-not-allowed`) is left out from then on, and the stamp is asked again of the rest.
  */
-export function createRelayService(base: string, options: RelayOptions = {}): AnchorService {
+/**
+ * Only the origin of `base` is used (the client takes no path); `auth` is the device key.
+ */
+export function createRelayService(
+  base: string,
+  auth: DeviceAuth,
+  options: RelayOptions = {},
+): AnchorService {
   const doFetch = options.fetch ?? ((input, init) => fetch(input, init));
-  const wallNow = options.wallNow ?? (() => Date.now());
-  const verifyToken = options.verify ?? verifyTimestampToken;
-  /** Start times (device clock) of the calls going on; a token must not be older than the earliest − 60 s. */
-  const sending: number[] = [];
+  const wallNow = options.now ?? (() => Date.now());
+  const trusted = options.trusted ?? trustedServices();
   /**
-   * The relay's clock minus the device clock, learned from the `Date` of its answers (whole seconds) when
-   * they differ by more than 30 s, as `docs/relay.md` advises („now und minGenTime … mit der korrigierten
-   * Uhr“): a device clock that is wrong does not make every genuine token look back-dated or from the
-   * future. Limit: the window then rests on the relay's word about the time.
+   * The relay's clock minus the device clock, from the `Date` of its answers, reported when it moves by
+   * more than 30 s: the app warns; it does not change the freshness check (that is the client's).
    */
   let clockOffsetMs = 0;
   const learnClock = (response: Response) => {
     const relayMs = Date.parse(response.headers.get('Date') ?? '');
     if (!Number.isFinite(relayMs)) return;
-    const device = wallNow();
-    if (Math.abs(relayMs - (device + clockOffsetMs)) > CLOCK_FIX_MS) {
-      clockOffsetMs = relayMs - device;
-      options.onClockOffset?.(clockOffsetMs);
+    const offset = relayMs - wallNow();
+    if (Math.abs(offset - clockOffsetMs) > CLOCK_FIX_MS) {
+      clockOffsetMs = offset;
+      options.onClockOffset?.(offset);
     }
   };
-  const client = createRelayClient({
-    relay: base,
-    fetch: (async (url, init) => {
-      const response = await doFetch(url, init as RequestInit);
-      learnClock(response);
-      return response;
-    }) as FetchLike,
-    now: options.now ?? (() => performance.now()),
-    wallNow,
-    trusted: new Map([...(options.trusted ?? trustedServices())].map(([id, s]) => [id, s.anchors])),
-    timeoutMs: options.timeoutMs ?? RELAY_TIMEOUT_MS,
-    // always one stamp of exactly this hash: a token of a collecting relay would stamp a tree's root, which
-    // is no PAdES document time stamp of the PDF (its imprint must be the digest of the byte range)
-    mode: 'solo',
-    ...(options.auth ? { auth: options.auth } : {}),
-    // freshness: the library's client checks no token age itself (`minGenTime`), so the app adds it
-    verify: (token, hash, anchors) =>
-      verifyToken(token, hash, anchors, {
-        now: new Date(wallNow() + clockOffsetMs),
-        minGenTime: new Date(
-          (sending.length > 0 ? Math.min(...sending) : wallNow()) +
-            clockOffsetMs -
-            FRESHNESS_SLACK_MS,
-        ),
-      }),
-  });
+  const fetchLike: FetchLike = async (url, init) => {
+    const response = await doFetch(url, { ...init, body: init.body as BodyInit });
+    learnClock(response);
+    return response;
+  };
+  const missing = new Set<string>();
+  let clientProblem: ClientFailure | null = null;
+  let current: { key: string; client: RelayClient | null } | undefined;
+  /** The client over the services still in play (made again only when one drops out). */
+  const clientNow = (): RelayClient | null => {
+    const ids = [...trusted.keys()].filter((id) => !missing.has(id));
+    const key = ids.join(',');
+    if (current?.key === key) return current.client;
+    const trust = [...new Set(ids.flatMap((id) => trusted.get(id)?.anchors ?? []))];
+    const made =
+      ids.length === 0
+        ? null
+        : createRelayClient({
+            relayUrl: relayOrigin(base),
+            audience: options.audience ?? relayOrigin(base),
+            keyId: auth.keyId,
+            privateKey: auth.privateKey,
+            trust,
+            services: ids,
+            fetch: fetchLike,
+            now: wallNow,
+            monoNow: options.monoNow ?? (() => performance.now()),
+            timeoutMs: options.timeoutMs ?? RELAY_TIMEOUT_MS,
+          });
+    const client = made === null ? null : made.ok ? made.value : null;
+    current = { key, client };
+    if (made && !made.ok) clientProblem = made;
+    return client;
+  };
   return {
     async anchor(hashHex) {
       const hash = hexToBytes(hashHex);
       if (!hash) return { ok: false, reason: 'bad-response', detail: 'Hash' };
-      const started = wallNow();
-      sending.push(started);
-      let stamped;
-      try {
-        stamped = await client.stamp(hash);
-      } finally {
-        sending.splice(sending.indexOf(started), 1);
+      for (;;) {
+        const client = clientNow();
+        if (!client) {
+          return clientProblem
+            ? outcomeOf(clientProblem, 0)
+            : {
+                ok: false,
+                reason: 'refused',
+                detail: 'kein Dienst des Weiterreichers ist der App bekannt',
+              };
+        }
+        const stamped = await client.stamp(hash, { mode: 'solo' });
+        if (stamped.ok) return { ok: true, value: { evidence: stamped.value } };
+        if (serviceMissing(stamped)) {
+          const service = stamped.detail;
+          // the client names the service asked in `detail` (the relay's 404/403 carries no reason);
+          // otherwise the first one still in play
+          const first = [...trusted.keys()].find((id) => !missing.has(id));
+          missing.add(service && trusted.has(service) ? service : (first ?? ''));
+          continue;
+        }
+        return outcomeOf(stamped, client.pausedForMs());
       }
-      if (!stamped.ok) return outcomeOf(stamped);
-      const { serviceId, token, genTime, serial } = stamped.value;
-      return { ok: true, value: { tsaId: serviceId, token, genTime, serial } };
     },
   };
 }

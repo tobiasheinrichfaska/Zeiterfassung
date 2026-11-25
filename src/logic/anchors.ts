@@ -1,7 +1,7 @@
 import { LIMITS, fail, ok, type Anchor, type Result, type TimeBook } from './model.ts';
 import { chainHead } from './stamps.ts';
 import { isHash } from './sha256.ts';
-import { textOk } from './validate.ts';
+import { evidenceToken, hexToBase64Url, readEvidence, type Evidence } from './evidence.ts';
 
 /**
  * Where the stamp chain stands against the external time stamping service:
@@ -39,7 +39,7 @@ export function anchorStatus(book: TimeBook, nowIso: string): AnchorStatus {
   const base = {
     unanchored: open.length,
     oldestUnanchoredAt: oldest,
-    lastAnchorGenTime: book.anchors.at(-1)?.genTime ?? null,
+    lastAnchorGenTime: book.anchors.at(-1)?.evidence.genTime ?? null,
     coveredN: covered,
     headN: head?.n ?? 0,
   };
@@ -65,44 +65,45 @@ export function anchorRequest(book: TimeBook): AnchorRequest | undefined {
 }
 
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
-const SERIAL = /^[0-9a-f]+$/;
 
 /**
- * Takes an anchor into the book after checking it strictly: it must cover a stamp that exists and
- * is newer than what is covered, its hash must be that stamp's hash, it carries the serial number of the
- * token (lower-case hex), the token must be Base64 within the
- * size limit, and the time of the token must fit the device clock within the tolerance (not long before
- * the stamp it covers, not in the future). A refused anchor changes nothing.
+ * The evidence of an anchor, read strictly (`readEvidence` of `zeitstempel/client`, a fresh copy), with the
+ * app's own rules on top: its hash is exactly `headHash`, its token is readable and within the size limit.
+ * Null when anything fails. Shared by `addAnchor` and the backup reader.
+ */
+export function checkedEvidence(evidence: unknown, headHash: unknown): Evidence | null {
+  if (typeof headHash !== 'string') return null;
+  const read = readEvidence(evidence);
+  if (!read.ok) return null;
+  const e = read.value;
+  if (e.hash !== hexToBase64Url(headHash)) return null;
+  if (e.token.length > LIMITS.maxAnchorTokenChars || evidenceToken(e) === null) return null;
+  return e;
+}
+
+/**
+ * Takes an anchor into the book after checking it strictly: it must cover a stamp that exists and is newer
+ * than what is covered, its evidence must pass `checkedEvidence` (strict form, the hash is that stamp's
+ * hash, token within the size limit), and the time of the token must fit the device clock within the
+ * tolerance (not long before the stamp it covers, not in the future). A refused anchor changes nothing.
  */
 export function addAnchor(book: TimeBook, anchor: Anchor, nowIso: string): Result<TimeBook> {
   if (book.anchors.length >= LIMITS.maxAnchors) return fail('too-many-anchors');
-  if (
-    !textOk(anchor.tsaId, LIMITS.maxTsaIdChars) ||
-    anchor.tsaId === '' ||
-    typeof anchor.genTime !== 'string' ||
-    Number.isNaN(Date.parse(anchor.genTime)) ||
-    !Number.isInteger(anchor.coveredN) ||
-    !isHash(anchor.headHash) ||
-    typeof anchor.serial !== 'string' ||
-    !SERIAL.test(anchor.serial) ||
-    anchor.serial.length > LIMITS.maxSerialChars ||
-    typeof anchor.token !== 'string' ||
-    anchor.token.length === 0 ||
-    anchor.token.length > LIMITS.maxAnchorTokenChars ||
-    anchor.token.length % 4 !== 0 ||
-    !BASE64.test(anchor.token)
-  ) {
-    return fail('bad-anchor');
-  }
+  if (!Number.isInteger(anchor.coveredN) || !isHash(anchor.headHash)) return fail('bad-anchor');
+  const evidence = checkedEvidence(anchor.evidence, anchor.headHash);
+  if (!evidence) return fail('bad-anchor');
   if (anchor.coveredN <= coveredUpTo(book)) return fail('bad-anchor');
   const covered = book.stamps.find((s) => s.n === anchor.coveredN);
   if (!covered || covered.hash !== anchor.headHash) return fail('bad-anchor');
   const tolerance = LIMITS.anchorSkewMinutes * 60_000;
-  const gen = Date.parse(anchor.genTime);
+  const gen = Date.parse(evidence.genTime);
   if (gen < Date.parse(covered.at) - tolerance || gen > Date.parse(nowIso) + tolerance) {
     return fail('anchor-skew');
   }
-  return ok({ ...book, anchors: [...book.anchors, { ...anchor }] });
+  return ok({
+    ...book,
+    anchors: [...book.anchors, { coveredN: anchor.coveredN, headHash: anchor.headHash, evidence }],
+  });
 }
 
 /** The answer of the stamping service for a hash (or why there is none). */
@@ -115,12 +116,12 @@ export type AnchorFailure =
   | 'not-verified'
   | 'unauthorized';
 
-/** What a verified answer gives: the time and serial are those of the checked token, not the relay's. */
+/**
+ * What a verified answer gives: the evidence of `zeitstempel/client` (its time is that of the checked
+ * token, not the relay's claim).
+ */
 export interface AnchorValue {
-  tsaId: string;
-  token: Uint8Array;
-  genTime: string;
-  serial: string;
+  evidence: Evidence;
 }
 
 export type AnchorOutcome =
@@ -145,14 +146,7 @@ export function bytesToBase64(bytes: Uint8Array): string {
 
 /** The anchor to add for a service's answer. */
 export function anchorFromOutcome(request: AnchorRequest, value: AnchorValue): Anchor {
-  return {
-    tsaId: value.tsaId,
-    genTime: value.genTime,
-    serial: value.serial,
-    coveredN: request.coveredN,
-    headHash: request.hash,
-    token: bytesToBase64(value.token),
-  };
+  return { coveredN: request.coveredN, headHash: request.hash, evidence: value.evidence };
 }
 
 /** Standard Base64 → bytes, or null when it is not valid Base64. */

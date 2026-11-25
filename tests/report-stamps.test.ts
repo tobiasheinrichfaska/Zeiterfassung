@@ -3,7 +3,6 @@ import {
   anchorStatusText,
   anchorStatus,
   breakStart,
-  bytesToBase64,
   emptyBook,
   monthTimestamps,
   monthToJson,
@@ -14,7 +13,9 @@ import {
   timestampLines,
   type TimeBook,
 } from '../src/logic/index.ts';
-import { val } from './helpers.ts';
+import { readFileSync } from 'node:fs';
+import { readTimestampResponse } from 'zeitstempel';
+import { evidenceFor, val } from './helpers.ts';
 import { ASSETS } from './pdfAssets.ts';
 import { inspect } from './pdfRead.ts';
 
@@ -34,25 +35,29 @@ function book(): TimeBook {
   return val(sealElapsedDays(b, '2026-11-25', iso(25)));
 }
 
-const token = bytesToBase64(Uint8Array.from([1, 2, 3, 4]));
+/** A real token (the recorded FreeTSA answer) as the evidence's token: its serial is read for the report. */
+const recorded = readTimestampResponse(
+  new Uint8Array(readFileSync(new URL('./fixtures/freetsa.tsr', import.meta.url))),
+);
+if (!recorded.ok) throw new Error('fixture');
+const SERIAL = recorded.value.info.serial;
+const evidenceOf = (hash: string, genTime: string) =>
+  evidenceFor(hash, { genTime, service: 'test-tsa', tokenBytes: recorded.value.token });
 const anchored = (b: TimeBook, n: number, genTime: string, now: string) =>
   val(
     addAnchor(
       b,
       {
-        tsaId: 'test-tsa',
-        genTime,
-        serial: '0a1b',
         coveredN: n,
         headHash: b.stamps[n - 1]!.hash,
-        token,
+        evidence: evidenceOf(b.stamps[n - 1]!.hash, genTime),
       },
       now,
     ),
   );
 
 describe('the section „Zeitstempel“ in the JSON attachment', () => {
-  it('carries the month’s stamps, the head, the status, the skew and every anchor with its token', () => {
+  it('carries the month’s stamps, the head, the status, the skew and every anchor with its evidence', () => {
     const b = anchored(book(), 2, iso(25, 8, 1), iso(25, 8, 5));
     const data = JSON.parse(val(monthToJson(b, '2026-11', CREATED)));
     const t = data.timestamps;
@@ -66,16 +71,13 @@ describe('the section „Zeitstempel“ in the JSON attachment', () => {
     expect(t.status).toMatchObject({ state: 'overdue', unanchored: 2, coveredN: 2, headN: 4 });
     expect(t.anchors).toEqual([
       {
-        tsaId: 'test-tsa',
-        genTime: iso(25, 8, 1),
-        serial: '0a1b',
         coveredN: 2,
         headHash: b.stamps[1]!.hash,
-        token,
+        evidence: evidenceOf(b.stamps[1]!.hash, iso(25, 8, 1)),
       },
     ]);
     expect(t.note).toMatch(/device clock/);
-    expect(data.version).toBe(2);
+    expect(data.version).toBe(3);
   });
 
   it('only has the stamps of the month asked for, but every anchor and the head', () => {
@@ -180,7 +182,10 @@ describe('the section in the PDF file', () => {
     expect(streams.shown).toContain('Stempel mit zurückgestellter Geräteuhr: Nr. 2.');
     expect(streams.shown).toContain('Überfällig:');
     expect(streams.shown).toContain('Externer Zeitstempel: test-tsa');
-    expect(JSON.parse(streams.embedded[0]!.text).timestamps.anchors[0].token).toBe(token);
+    expect(streams.shown).toContain(`Seriennummer des Tokens: ${SERIAL}`);
+    expect(JSON.parse(streams.embedded[0]!.text).timestamps.anchors[0].evidence).toEqual(
+      b.anchors[0]!.evidence,
+    );
   });
 
   it('says in the report when no service is set up', async () => {

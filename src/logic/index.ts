@@ -6,6 +6,7 @@ export * from './changes.ts';
 export * from './stamps.ts';
 export * from './anchors.ts';
 export * from './relay.ts';
+export * from './evidence.ts';
 export * from './summary.ts';
 export * from './canonical.ts';
 export * from './sha256.ts';

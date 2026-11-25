@@ -17,7 +17,7 @@ import {
 } from '../io/deviceKey.ts';
 import { AnchorContext, type AnchorApi } from './anchorContext.ts';
 import { useBookApi } from './bookContext.ts';
-import { ALLOWED_RELAYS } from './relayConfig.ts';
+import { ALLOWED_RELAYS, audienceFor } from './relayConfig.ts';
 
 /** How often the app looks again while it is open (seals, status, and a new time stamp when one is due). */
 const SEAL_EVERY_MS = 60_000;
@@ -45,7 +45,10 @@ export function AnchorProvider({ vault, children }: { vault: Vault; children: Re
   const service = useMemo(
     () =>
       relayAvailable && key
-        ? createRelayService(relay, { auth: key, onClockOffset: setClockOffsetMs })
+        ? createRelayService(relay, key, {
+            audience: audienceFor(relay),
+            onClockOffset: setClockOffsetMs,
+          })
         : undefined,
     [relayAvailable, relay, key],
   );

@@ -11,11 +11,12 @@ import {
   parseDeviceKey,
   stampIn,
 } from '../src/logic/index.ts';
+import { CLIENT_LIMITS } from 'zeitstempel/client';
 import {
-  FRESHNESS_SLACK_MS,
   RELAY_TIMEOUT_MS,
   createRelayService,
   requestAnchor,
+  type DeviceAuth,
   type RelayOptions,
 } from '../src/io/anchorService.ts';
 import { loadDeviceKey, removeDeviceKey, storeDeviceKey } from '../src/io/deviceKey.ts';
@@ -159,17 +160,17 @@ describe('the authenticated relay (adapter)', () => {
     const seen: { url: string; init: RequestInit }[] = [];
     const fn: typeof fetch = async (url, init) => {
       seen.push({ url: String(url), init: init ?? {} });
-      if (String(url).endsWith('/v1/services')) return json(200, { services: [{ id: 'freetsa' }] });
       const next = stamps.shift();
       if (!next) throw new Error('unexpected call');
       return next;
     };
     return { fn, seen };
   }
-  const service = (fn: typeof fetch, over: RelayOptions = {}) =>
-    createRelayService(RELAY, { fetch: fn, wallNow: () => GEN + 4000, ...over });
+  const service = (fn: typeof fetch, auth: DeviceAuth, over: RelayOptions = {}) =>
+    createRelayService(RELAY, auth, { fetch: fn, now: () => GEN + 4000, ...over });
+  const text = (body: unknown) => new TextDecoder().decode(body as Uint8Array);
 
-  it('signs every stamp request with the device key (header v2.<kid>.<ts>.<sig>), asks solo', async () => {
+  it('signs every stamp request with the device key (header v3 with audience and jti), asks solo', async () => {
     const { pkcs8, publicKey } = await makeKey();
     const privateKey = await crypto.subtle.importKey(
       'pkcs8',
@@ -179,21 +180,28 @@ describe('the authenticated relay (adapter)', () => {
       ['sign'],
     );
     const r = relay(answer());
-    const out = await service(r.fn, { auth: { privateKey, keyId: 'geraet-1' } }).anchor(PROBE_HASH);
+    const out = await service(
+      r.fn,
+      { privateKey, keyId: 'geraet-1' },
+      {
+        audience: 'zeiterfassung-test',
+      },
+    ).anchor(PROBE_HASH);
     expect(out.ok).toBe(true);
-    const post = r.seen[1]!;
-    const body = String(post.init.body);
+    expect(r.seen).toHaveLength(1); // no list of services: only the stamp
+    const post = r.seen[0]!;
+    const body = text(post.init.body);
     expect(JSON.parse(body)).toEqual({
       hash: b64url(Buffer.from(PROBE_HASH, 'hex')),
       mode: 'solo',
     });
     const header = (post.init.headers as Record<string, string>)['X-Zeitstempel-Auth']!;
-    const [v, kid, ts, sig] = header.split('.');
-    expect([v, kid, ts]).toEqual(['v2', 'geraet-1', String(Math.floor((GEN + 4000) / 1000))]);
+    const [v, kid, ts, jti, sig] = header.split('.');
+    expect([v, kid, ts]).toEqual(['v3', 'geraet-1', String(GEN + 4000)]);
+    expect(jti).toMatch(/^[A-Za-z0-9_-]{22}$/);
     const message =
-      'zeitstempel-auth-v2\nPOST\n/v1/stamp/freetsa\n' +
-      ts +
-      '\n' +
+      'zeitstempel-auth-v3\nPOST\n/v1/stamp/freetsa\nzeiterfassung-test\n' +
+      `${ts}\n${jti}\n` +
       createHash('sha256').update(body).digest('hex');
     const pub = createPublicKey({
       key: (await crypto.subtle.exportKey('jwk', publicKey)) as never,
@@ -207,9 +215,35 @@ describe('the authenticated relay (adapter)', () => {
         Buffer.from(sig!, 'base64url'),
       ),
     ).toBe(true);
-    // the GET of the service list is never signed, and the key never leaves
-    expect(r.seen[0]!.init.headers ?? {}).not.toHaveProperty('X-Zeitstempel-Auth');
+    // the key never leaves
     expect(JSON.stringify(r.seen)).not.toContain(b64url(pkcs8));
+  });
+
+  it('signs for the relay origin when no audience is given (the relay’s convention)', async () => {
+    const { pkcs8, publicKey } = await makeKey();
+    const r = relay(answer());
+    expect(
+      (await service(r.fn, { privateKey: pkcs8, keyId: 'geraet-1' }).anchor(PROBE_HASH)).ok,
+    ).toBe(true);
+    const post = r.seen[0]!;
+    const [, , ts, jti, sig] = (post.init.headers as Record<string, string>)[
+      'X-Zeitstempel-Auth'
+    ]!.split('.');
+    const message =
+      `zeitstempel-auth-v3\nPOST\n/v1/stamp/freetsa\n${RELAY}\n${ts}\n${jti}\n` +
+      createHash('sha256').update(text(post.init.body)).digest('hex');
+    const pub = createPublicKey({
+      key: (await crypto.subtle.exportKey('jwk', publicKey)) as never,
+      format: 'jwk',
+    });
+    expect(
+      nodeVerify(
+        'sha256',
+        Buffer.from(message),
+        { key: pub, dsaEncoding: 'ieee-p1363' },
+        Buffer.from(sig!, 'base64url'),
+      ),
+    ).toBe(true);
   });
 
   it('says that the device key is not accepted on 401 and on 403 solo-not-allowed, no anchor', async () => {
@@ -218,73 +252,77 @@ describe('the authenticated relay (adapter)', () => {
     const b = emptyBook();
     b.settings = { ...b.settings, timestampRelay: RELAY };
     const book = val(stampIn(b, { date: '2026-11-20', minute: 480 }, '2026-11-20T08:00:00.000Z'));
-    const date = new Date(GEN + 4000).toUTCString(); // the relay's clock agrees: no second try
-    const r401 = relay(json(401, { error: 'unauthorized' }, { Date: date }));
-    expect(await requestAnchor(book, service(r401.fn, { auth }))).toEqual({
+    // the relay's clock agrees: the client still signs once more with its Date (one try), then gives up
+    const date = new Date(GEN + 4000).toUTCString();
+    const r401 = relay(
+      json(401, { error: 'unauthorized' }, { Date: date }),
+      json(401, { error: 'unauthorized' }, { Date: date }),
+    );
+    expect(await requestAnchor(book, service(r401.fn, auth))).toEqual({
       kind: 'failed',
-      text: 'Geräteschlüssel wird vom Zeitstempeldienst nicht angenommen. (Status 401, unauthorized)',
+      text: 'Geräteschlüssel wird vom Zeitstempeldienst nicht angenommen. (Status 401)',
     });
+    expect(r401.seen).toHaveLength(2);
     const r403 = relay(json(403, { error: 'solo-not-allowed' }));
-    expect(await service(r403.fn, { auth }).anchor(PROBE_HASH)).toEqual({
+    expect(await service(r403.fn, auth).anchor(PROBE_HASH)).toEqual({
       ok: false,
       reason: 'unauthorized',
       detail: 'Status 403, Schlüssel ohne Solo-Erlaubnis',
     });
+    expect(
+      await service(relay().fn, { privateKey: pkcs8, keyId: 'Gerät' }).anchor(PROBE_HASH),
+    ).toEqual({ ok: false, reason: 'unauthorized', detail: 'Schlüssel nicht verwendbar' });
   });
 
-  it('refuses a token older than the sending minus 60 s (back-dated), and one from the future', async () => {
+  it('refuses a token older than the sending minus 60 s (the client’s freshness), and one from the future', async () => {
+    const { pkcs8 } = await makeKey();
+    const auth = { privateKey: pkcs8, keyId: 'geraet-1' };
     const late = relay(answer());
-    expect(
-      await service(late.fn, { wallNow: () => GEN + FRESHNESS_SLACK_MS + 5000 }).anchor(PROBE_HASH),
-    ).toEqual({
+    expect(await service(late.fn, auth, { now: () => GEN + 65_000 }).anchor(PROBE_HASH)).toEqual({
       ok: false,
       reason: 'not-verified',
       detail: 'die bestätigte Zeit liegt vor der Anfrage (rückdatiert)',
     });
     const inTime = relay(answer());
     expect(
-      (
-        await service(inTime.fn, { wallNow: () => GEN + FRESHNESS_SLACK_MS - 5000 }).anchor(
-          PROBE_HASH,
-        )
-      ).ok,
+      (await service(inTime.fn, auth, { now: () => GEN + 55_000 }).anchor(PROBE_HASH)).ok,
     ).toBe(true);
     const early = relay(answer());
     expect(
-      await service(early.fn, { wallNow: () => GEN - 10 * 60_000 }).anchor(PROBE_HASH),
+      await service(early.fn, auth, { now: () => GEN - 10 * 60_000 }).anchor(PROBE_HASH),
     ).toMatchObject({ ok: false, reason: 'not-verified' });
   });
 
-  it('judges freshness by the relay’s clock when the device clock is off by more than 30 s', async () => {
-    const dated = (date: number) => {
-      const seen: string[] = [];
-      const fn: typeof fetch = async (url) => {
-        seen.push(String(url));
-        const headers = { Date: new Date(date).toUTCString() };
-        return String(url).endsWith('/v1/services')
-          ? json(200, { services: [{ id: 'freetsa' }] }, headers)
-          : new Response((await answer().text()) as string, { status: 200, headers });
-      };
-      return fn;
-    };
-    const ahead = () => GEN + 2 * 3_600_000; // the device clock runs two hours ahead
-    // without the relay's Date the genuine token looks back-dated
-    expect(await service(relay(answer()).fn, { wallNow: ahead }).anchor(PROBE_HASH)).toMatchObject({
-      ok: false,
-      detail: 'die bestätigte Zeit liegt vor der Anfrage (rückdatiert)',
-    });
-    // with it, the window is the relay's: accepted
-    expect((await service(dated(GEN + 3000), { wallNow: ahead }).anchor(PROBE_HASH)).ok).toBe(true);
-    // a back-dated token stays refused when the relay's clock says it is old
+  it('corrects the clock once by the relay’s Date after a 401 (at most 65 s), then the token is fresh', async () => {
+    const { pkcs8 } = await makeKey();
+    const auth = { privateKey: pkcs8, keyId: 'geraet-1' };
+    const device = GEN + 64_000; // 64 s ahead: the token would look back-dated
+    const relayDate = new Date(GEN + 3000).toUTCString();
+    const r = relay(json(401, { error: 'unauthorized' }, { Date: relayDate }), answer());
+    const offsets: number[] = [];
+    const out = await service(r.fn, auth, {
+      now: () => device,
+      onClockOffset: (o) => offsets.push(o),
+    }).anchor(PROBE_HASH);
+    expect(out.ok).toBe(true);
+    expect(r.seen).toHaveLength(2);
+    expect(offsets).toEqual([Date.parse(relayDate) - device]); // the clock warning learns it too
+    // two hours off: no correction (a relay could move the freshness check), the key looks refused
+    const far = relay(json(401, { error: 'unauthorized' }, { Date: relayDate }));
+    const warned: number[] = [];
     expect(
-      await service(dated(GEN + 5 * 60_000), { wallNow: ahead }).anchor(PROBE_HASH),
-    ).toMatchObject({
-      ok: false,
-      detail: 'die bestätigte Zeit liegt vor der Anfrage (rückdatiert)',
-    });
+      await service(far.fn, auth, {
+        now: () => GEN + 2 * 3_600_000,
+        onClockOffset: (o) => warned.push(o),
+      }).anchor(PROBE_HASH),
+    ).toMatchObject({ ok: false, reason: 'unauthorized' });
+    expect(far.seen).toHaveLength(1);
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toBeLessThan(-7_000_000);
   });
 
-  it('waits long enough for the relay (its own waits are up to 47 s in single operation)', () => {
+  it('waits as long as the client’s default (the relay’s own waits are up to 47 s in single operation)', () => {
+    expect(RELAY_TIMEOUT_MS).toBe(CLIENT_LIMITS.DEFAULT_TIMEOUT_MS);
     expect(RELAY_TIMEOUT_MS).toBeGreaterThanOrEqual(47_000 + 30_000);
   });
 });

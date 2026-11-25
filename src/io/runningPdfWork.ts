@@ -9,6 +9,7 @@ import {
   appendRunningDay,
   clockFromDate,
   daysToAppend,
+  evidenceToken,
   pdfSlotPlan,
   reasonText,
   runningPdfState,
@@ -61,7 +62,10 @@ const message = (error: unknown): string =>
 const hex = (bytes: Uint8Array): string =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
-/** A `pdf-fortschreiben` stamper over the app's service: digest → verified token bytes. */
+/**
+ * A `pdf-fortschreiben` stamper over the app's service: digest → the token bytes of the verified evidence
+ * (`kind: 'single'` only; a batch evidence is refused).
+ */
 export function stamperFor(service: AnchorService): Stamper {
   return async (digest) => {
     let outcome;
@@ -73,7 +77,15 @@ export function stamperFor(service: AnchorService): Stamper {
     if (!outcome.ok) {
       throw new StampFailure(`${ANCHOR_FAILURE_TEXTS[outcome.reason]} (${outcome.detail})`);
     }
-    return outcome.value.token;
+    // a PAdES document time stamp needs a token over exactly this digest: a collected (batch) one is not
+    const { evidence } = outcome.value;
+    const token = evidence.kind === 'single' ? evidenceToken(evidence) : null;
+    if (!token) {
+      throw new StampFailure(
+        `${ANCHOR_FAILURE_TEXTS['bad-response']} (${RUNNING_PDF_TEXTS.notSingle})`,
+      );
+    }
+    return token;
   };
 }
 

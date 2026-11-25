@@ -1,10 +1,5 @@
 import { createVault, type VaultConfig, type VaultEnvironment } from 'local-vault';
-import {
-  BOOK_SLOT,
-  DEVICE_KEY_SLOT,
-  DRAFT_SLOT,
-  PDF_SLOTS,
-} from '../logic/index.ts';
+import { BOOK_SLOT, DEVICE_KEY_SLOT, DRAFT_SLOT, PDF_SLOTS } from '../logic/index.ts';
 
 /**
  * The app's vault: prefix and slots are fixed for good (a changed prefix makes stored data unreadable).

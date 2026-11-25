@@ -23,8 +23,9 @@ import { checkSettings, checkWorkday, textOk } from './validate.ts';
 import { isDateKey, isMonthKey } from './time.ts';
 import { isHash } from './sha256.ts';
 import { checkChain } from './stamps.ts';
+import { checkedEvidence } from './anchors.ts';
 
-/** The older format version that is still read (and migrated without loss). */
+/** The oldest format version that is still read (its days, log and chain; see `importBackup`). */
 const OLDEST_READABLE_VERSION = 1;
 
 /** The whole book as a text a person can keep (the backup file). */
@@ -125,24 +126,26 @@ function readStamp(v: unknown): Stamp | null {
   return v as unknown as Stamp;
 }
 
-const ANCHOR_KEYS = ['tsaId', 'genTime', 'serial', 'coveredN', 'headHash', 'token'];
+const ANCHOR_KEYS = ['coveredN', 'headHash', 'evidence'];
 
+/** An anchor of format 4: covered stamp, its hash, and the evidence for exactly that hash. */
 function readAnchor(v: unknown): Anchor | null {
   if (!isObject(v) || !hasOnly(v, ANCHOR_KEYS)) return null;
-  if (typeof v.tsaId !== 'string' || typeof v.genTime !== 'string') return null;
-  if (typeof v.serial !== 'string' || !/^[0-9a-f]{1,64}$/.test(v.serial)) return null;
-  if (!Number.isInteger(v.coveredN) || !isHash(v.headHash) || typeof v.token !== 'string') {
-    return null;
-  }
-  return v as unknown as Anchor;
+  if (!Number.isInteger(v.coveredN) || !isHash(v.headHash)) return null;
+  const evidence = checkedEvidence(v.evidence, v.headHash);
+  if (!evidence) return null;
+  return { coveredN: v.coveredN as number, headHash: v.headHash, evidence };
 }
 
 /** The chain, its base and the anchors, read strictly; returns a reason when anything is wrong. */
 function readChain(
   raw: Record<string, unknown>,
+  version: number,
 ): { stamps: Stamp[]; stampBase: StampBase | null; anchors: Anchor[] } | Reason {
   const { stamps, stampBase, anchors } = raw;
   if (!Array.isArray(stamps) || !Array.isArray(anchors)) return 'bad-backup';
+  // anchors of format 3 (token, serial and time as single fields) are not read any more: none exist
+  if (version < 4 && anchors.length > 0) return 'old-anchor-format';
   if (stamps.length > LIMITS.maxStamps) return 'too-many-stamps';
   if (anchors.length > LIMITS.maxAnchors) return 'too-many-anchors';
   let base: StampBase | null = null;
@@ -181,8 +184,10 @@ function readChain(
 /**
  * Reads a backup strictly: an unknown format or version, an unknown member, a day, a log entry, a stamp
  * or an anchor that fails the rules, a broken stamp chain, or two open days is a refusal — nothing is
- * half-taken. Versions 1 and 2 are read and become version 3 (an empty chain and no anchors, the relay
- * off); nothing else changes. The caller decides whether to replace the current book (the UI asks).
+ * half-taken. Versions 1 and 2 are read and become version 4 (an empty chain and no anchors, the relay
+ * off); version 3 is read with its chain, but only without anchors: an anchor of format 3 (before the
+ * evidence, 2026-11-25) is refused with `old-anchor-format` (there are none; no migration). Anchors of
+ * version 4 hold the evidence of `zeitstempel/client`, read strictly (`checkedEvidence`). The caller decides whether to replace the current book (the UI asks).
  */
 export function importBackup(text: string): Result<TimeBook> {
   if (typeof text !== 'string' || text.length > LIMITS.maxBackupChars) return fail('bad-backup');
@@ -251,7 +256,7 @@ export function importBackup(text: string): Result<TimeBook> {
     }
   }
   if (version >= 3) {
-    const chain = readChain(raw);
+    const chain = readChain(raw, version);
     if (typeof chain === 'string') return fail(chain);
     book.stamps = chain.stamps;
     book.stampBase = chain.stampBase;

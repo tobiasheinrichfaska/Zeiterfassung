@@ -286,10 +286,10 @@ describe('reading the log', () => {
 });
 
 describe('older versions are read and migrated without loss', () => {
-  it('writes version 3 and reads it back unchanged', () => {
+  it('writes version 4 and reads it back unchanged', () => {
     const b = val(setWorkday(bookWith(), input, LATER, { ...ctx, reason: 'x' }));
     expect(b.version).toBe(BOOK_VERSION);
-    expect(BOOK_VERSION).toBe(3);
+    expect(BOOK_VERSION).toBe(4);
     expect(val(importBackup(exportBackup(b)))).toEqual(b);
   });
 
@@ -304,7 +304,7 @@ describe('older versions are read and migrated without loss', () => {
   it('reads a version 1 file and migrates it without loss', () => {
     const old = v1();
     const b = val(importBackup(JSON.stringify(old)));
-    expect(b.version).toBe(3);
+    expect(b.version).toBe(4);
     expect(b.changes).toEqual([]);
     expect(b.stamps).toEqual([]);
     expect(b.stampBase).toBeNull();
@@ -312,7 +312,7 @@ describe('older versions are read and migrated without loss', () => {
     expect(b.settings).toEqual({ ...old.settings, timestampRelay: '' });
     expect(b.days).toEqual(old.days);
     expect(b.exportedMonths).toEqual(old.exportedMonths);
-    expect(val(importBackup(exportBackup(b)))).toEqual(b); // and it is a valid version 3 text
+    expect(val(importBackup(exportBackup(b)))).toEqual(b); // and it is a valid version 4 text
   });
 
   it('reads a version 2 file (with its log) and migrates it without loss', () => {
@@ -326,7 +326,7 @@ describe('older versions are read and migrated without loss', () => {
       changes: logged.changes,
     };
     const b = val(importBackup(JSON.stringify(v2)));
-    expect(b.version).toBe(3);
+    expect(b.version).toBe(4);
     expect(b.changes).toEqual(logged.changes);
     expect(b.days).toEqual(logged.days);
     expect(b.settings.timestampRelay).toBe('');
@@ -340,7 +340,7 @@ describe('older versions are read and migrated without loss', () => {
     const { changes: _ignored, ...withoutLog } = base;
     void _ignored;
     expect(importBackup(JSON.stringify(withoutLog)).ok).toBe(false);
-    expect(importBackup(JSON.stringify({ ...base, version: 4 }))).toEqual({
+    expect(importBackup(JSON.stringify({ ...base, version: 5 }))).toEqual({
       ok: false,
       reason: 'unknown-version',
     });

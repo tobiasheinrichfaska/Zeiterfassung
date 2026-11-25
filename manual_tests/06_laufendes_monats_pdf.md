@@ -47,7 +47,7 @@ bleibt in dieser Abfrage möglich. Zum Durchspielen die Geräteuhr verstellen (D
 - Schritt 1: Der Tag ist enthalten, roter Hinweis „Der neueste Stand der laufenden Monatsdatei ist nicht gestempelt: Der Zeitstempeldienst ist nicht erreichbar. (…)“. Der Tag geht nicht verloren.
 - Schritt 2: Kurz nach dem Start: „1 Dokument-Zeitstempel, letzter … (laut Token).“ und „Der neueste Stand ist gestempelt.“; kein roter Hinweis mehr. Bleibt die App offen und der Dienst unerreichbar, versucht sie es alle 15 Minuten erneut.
 - Schritt 3: Der Betrachter zeigt einen Dokument-Zeitstempel. (Ob er ihn als vertrauenswürdig anzeigt, hängt vom Dienst ab; die freien Dienste sind nicht qualifiziert.)
-- Im Register „Netzwerk“ der Entwicklerwerkzeuge gehen nur `GET …/v1/services` und `POST …/v1/stamp/<Kennung>` mit einer Prüfsumme hinaus, nie die Datei.
+- Im Register „Netzwerk“ der Entwicklerwerkzeuge gehen nur `POST …/v1/stamp/<Kennung>` (mit Vorabfrage `OPTIONS`) mit einer Prüfsumme hinaus, nie die Datei.
 
 ## MT-31: Monatswechsel, Löschen und was nicht in der Sicherung ist
 

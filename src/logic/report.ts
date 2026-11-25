@@ -44,7 +44,7 @@ export function monthTimestamps(
 
 /** Format marker and version of the monthly data file (the attachment of the PDF). */
 export const REPORT_FORMAT = 'zeiterfassung-monat';
-export const REPORT_VERSION = 2;
+export const REPORT_VERSION = 3;
 
 /** File name of the attached data file. */
 export const attachmentName = (month: MonthKey): string => `zeiterfassung-${month}.json`;
@@ -123,9 +123,10 @@ export function monthToJson(
 function timestampsJson(t: TimestampSection, base: StampBase | null): Json {
   return {
     note:
-      'Internal stamps use the device clock and prove no time; only the anchors (time stamp tokens, ' +
-      'Base64 of the RFC 3161 DER token, with the time of the service and its serial) prove a time. Check a ' +
-      "token against the hash of its stamp and the service's root certificate, for example with openssl ts.",
+      'Internal stamps use the device clock and prove no time; only the anchors prove a time. Each anchor ' +
+      'holds the evidence (format v1 of zeitstempel/client): service, hash (base64url of headHash), the ' +
+      'time of the checked token and the RFC 3161 DER token as base64url. Check it with verifyEvidence of ' +
+      "zeitstempel/client, or decode the token and use openssl ts against the service's root certificate.",
     chainHeadN: t.head?.n ?? 0,
     chainHeadHash: t.head?.hash ?? null,
     chainBase: base ? { n: base.n, hash: base.hash, at: base.at } : null,
@@ -134,6 +135,11 @@ function timestampsJson(t: TimestampSection, base: StampBase | null): Json {
     firstUncoveredN: t.firstUncovered?.n ?? null,
     skewNumbers: t.skewNumbers,
     stamps: t.stamps.map((s) => ({ ...s })),
-    anchors: t.anchors.map((a) => ({ ...a })),
+    anchors: t.anchors.map((a) => ({
+      coveredN: a.coveredN,
+      headHash: a.headHash,
+      // the evidence as `zeitstempel/client` wrote it (format v1): checkable with its `verifyEvidence`
+      evidence: JSON.parse(JSON.stringify(a.evidence)) as Json,
+    })),
   };
 }

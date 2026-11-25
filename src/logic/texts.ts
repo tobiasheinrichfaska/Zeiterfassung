@@ -34,6 +34,8 @@ export const REASON_TEXTS: Record<Reason, string> = {
   'anchor-skew':
     'Die Zeit des externen Zeitstempels passt nicht zur Geräteuhr. Bitte die Uhr des Geräts prüfen.',
   'too-many-anchors': 'Es sind höchstens 400 externe Zeitstempel möglich.',
+  'old-anchor-format':
+    'Die Daten enthalten externe Zeitstempel in einem alten Format, das nicht mehr gelesen wird.',
   'bad-relay': 'Diese Adresse des Weiterreichers ist in dieser Fassung nicht erlaubt.',
   'bad-retention': 'Die Aufbewahrung muss zwischen 1 und 120 Monaten liegen.',
   'bad-origin': 'Die Herkunft des Eintrags ist unbekannt.',
@@ -98,6 +100,8 @@ export const RUNNING_PDF_TEXTS = {
     'Kein externer Zeitstempeldienst eingerichtet: Der neueste Stand der laufenden Monatsdatei ist nicht gestempelt.',
   stampFailed: 'Der neueste Stand der laufenden Monatsdatei ist nicht gestempelt',
   tokenTooLarge: 'Das Token des Zeitstempeldienstes ist zu groß für den reservierten Platz.',
+  notSingle:
+    'Sammelbeleg statt Einzelstempel; ein Dokument-Zeitstempel braucht ein Token über genau diesen Stand',
   unreadable:
     'Die gespeicherte laufende Monatsdatei ist nicht lesbar. Sie bleibt unverändert; es wird nichts angehängt.',
   tooLarge:

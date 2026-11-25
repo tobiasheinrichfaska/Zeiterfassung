@@ -1,12 +1,11 @@
-// The one place that names where the Zeitstempel library (RFC 3161 reader, verifier and relay client) and
-// its data come from. The package comes by Git reference (built on install). `services.json` is taken
+// Where the Zeitstempel library's data come from (the relay client is `zeitstempel/client`, used by
+// `anchorService.ts`; the pure evidence readers by `src/logic/evidence.ts`). The package comes by Git
+// reference (built on install). `services.json` is taken
 // through the package's export `zeitstempel/services.json`; the trust anchors (`anchors/*.pem`, also
 // exported) are collected with Vite's `import.meta.glob`, which takes only paths, not package names, so
 // they are still read from the installed package by path.
-import { verifyTimestampToken, fromBase64Url, readServices, readToken } from 'zeitstempel';
+import { readServices, readToken } from 'zeitstempel';
 import servicesData from 'zeitstempel/services.json';
-
-export { verifyTimestampToken, fromBase64Url };
 
 const pems = import.meta.glob('../../node_modules/zeitstempel/anchors/*.pem', {
   query: '?raw',

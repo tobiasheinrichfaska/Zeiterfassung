@@ -19,7 +19,7 @@ import {
   type RunningPdfDeps,
 } from '../src/io/runningPdfWork.ts';
 import { createAppVault, vaultConfig } from '../src/ui/vault.ts';
-import { bookWith, day, val } from './helpers.ts';
+import { bookWith, day, evidenceFor, val } from './helpers.ts';
 import { ASSETS } from './pdfAssets.ts';
 
 /** A stand-in token of `size` bytes: one DER OCTET STRING (checks the plumbing, proves nothing). */
@@ -42,7 +42,7 @@ function service(...answers: (number | 'down')[]) {
           ? { ok: false, reason: 'unreachable', detail: 'Zeitüberschreitung' }
           : {
               ok: true,
-              value: { tsaId: 'test', token: token(a!), genTime: '', serial: '1' },
+              value: { evidence: evidenceFor(hashHex, { tokenBytes: token(a!) }) },
             };
       return out;
     },
@@ -264,6 +264,23 @@ describe('running monthly PDF in the app (store and run)', () => {
     expect(no).toEqual({
       ok: false,
       text: expect.stringContaining('zu groß für den reservierten Platz'),
+    });
+  }, 60_000);
+
+  it('takes the token from a single evidence only; a batch evidence is no document time stamp', async () => {
+    const { vault } = await openVault();
+    await updateRunningPdfs(bookWith(day({ date: '2026-11-02' })), deps(vault));
+    const pdf = pdfInSlot(vault, 'monatspdf-a');
+    if (!pdf) throw new Error('no file');
+    const batch: AnchorService = {
+      anchor: async (hashHex) => ({
+        ok: true,
+        value: { evidence: evidenceFor(hashHex, { kind: 'batch', tokenBytes: token(3000) }) },
+      }),
+    };
+    expect(await stampRunningPdf(pdf, batch)).toEqual({
+      ok: false,
+      text: expect.stringContaining('Sammelbeleg statt Einzelstempel'),
     });
   }, 60_000);
 

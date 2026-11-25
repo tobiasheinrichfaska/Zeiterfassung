@@ -117,7 +117,7 @@ function commonChecks(name: string, get: () => string, connect: string[]) {
       expect(get().match(FALLBACK)).toHaveLength(1);
     });
 
-    it('contains no code that a script policy without eval would stop, and only the one fetch', () => {
+    it('contains no code that a script policy without eval would stop, and only the relay client’s fetch', () => {
       const code = get().replace(FALLBACK, 'FALLBACK(');
       for (const [label, pattern] of [
         ['eval', /\beval\s*\(/],
@@ -135,8 +135,9 @@ function commonChecks(name: string, get: () => string, connect: string[]) {
       ] as const) {
         expect(code, label).not.toMatch(pattern);
       }
-      // the one place that talks to the network: the relay adapter of the time stamps
-      expect(code.match(/\bfetch\s*\(/g) ?? []).toHaveLength(1);
+      // the relay client of the time stamps (`zeitstempel/client`): its default `fetch` (unused, the app
+      // passes its own) and the adapter's `fetch`, which the client calls with these options
+      expect(code.match(/\bfetch\s*\(/g) ?? []).toHaveLength(2);
       expect(code).toMatch(/credentials:`omit`/);
       expect(code).toMatch(/redirect:`error`/);
     });

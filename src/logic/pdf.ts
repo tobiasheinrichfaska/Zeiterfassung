@@ -16,6 +16,7 @@ import { monthSummary } from './summary.ts';
 import { formatDuration, formatIsoDate, formatIsoDateTime, isMonthKey } from './time.ts';
 import { attachmentName, monthTimestamps, monthToJson, type TimestampSection } from './report.ts';
 import { anchorStatusText } from './texts.ts';
+import { evidenceSerial } from './evidence.ts';
 import { sha256Hex } from './sha256.ts';
 import { monthLabel, rowTexts } from './view.ts';
 import { keepSupported } from './chars.ts';
@@ -81,13 +82,13 @@ export function timestampLines(t: TimestampSection): string[] {
   if (t.anchors.length === 0) lines.push('Keine externen Zeitstempel vorhanden.');
   for (const a of t.anchors) {
     lines.push(
-      `Externer Zeitstempel: ${a.tsaId}, ${formatIsoDateTime(a.genTime)}, deckt die Stempel bis Nr. ${a.coveredN} ab`,
+      `Externer Zeitstempel: ${a.evidence.service}, ${formatIsoDateTime(a.evidence.genTime)}, deckt die Stempel bis Nr. ${a.coveredN} ab`,
       `Hash: ${a.headHash}`,
-      `Seriennummer des Tokens: ${a.serial}`,
+      `Seriennummer des Tokens: ${evidenceSerial(a.evidence) ?? 'nicht lesbar'}`,
     );
   }
   lines.push(
-    'Die internen Stempel stammen von der Geräteuhr und belegen keine Zeit. Nur die externen Zeitstempel belegen die Zeit. Ihre Token stehen Base64-kodiert im angehängten JSON und lassen sich mit Werkzeugen wie „openssl ts“ prüfen.',
+    'Die internen Stempel stammen von der Geräteuhr und belegen keine Zeit. Nur die externen Zeitstempel belegen die Zeit. Ihre Belege (mit dem Token, base64url-kodiert) stehen im angehängten JSON und lassen sich mit Werkzeugen wie „openssl ts“ prüfen.',
   );
   return lines;
 }

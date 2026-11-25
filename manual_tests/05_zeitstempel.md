@@ -59,7 +59,7 @@ solange sie geöffnet und online ist; im Hintergrund geht nichts.
 
 ## MT-26: Mit erreichbarem Dienst (Stellvertreter)
 
-**Voraussetzung:** Eine Fassung mit Adresse eines Zeitstempel-Weiterreichers (`GET <Adresse>/v1/services`, `POST <Adresse>/v1/stamp/<Kennung>`; die Prüfung des Tokens macht die App selbst gegen die mitgelieferten Wurzelzertifikate). Der Weiterreicher muss die Herkunft der Seite erlauben (`RELAY_ORIGINS`).
+**Voraussetzung:** Eine Fassung mit Adresse eines Zeitstempel-Weiterreichers (`POST <Adresse>/v1/stamp/<Kennung>`, signiert; die Prüfung des Tokens macht die App selbst gegen die mitgelieferten Wurzelzertifikate). Der Weiterreicher muss die Herkunft der Seite erlauben (`RELAY_ORIGINS`), seine `RELAY_AUDIENCE` muss die der Fassung sein (`VITE_TIMESTAMP_AUDIENCE`, ohne sie die Herkunft des Weiterreichers).
 
 **Schritte**
 
@@ -70,7 +70,7 @@ solange sie geöffnet und online ist; im Hintergrund geht nichts.
 **Erwartet**
 
 - Schritt 2: Der Status wechselt auf „Alle … Stempel sind durch externe Zeitstempel abgedeckt (letzter: … UTC).“; es gibt keinen roten Kasten.
-- Die App sendet nur die Prüfsumme (im Register „Netzwerk“: eine Anfrage `GET …/v1/services` ohne Inhalt und eine Anfrage `POST …/v1/stamp/<Kennung>`, im Inhalt nur `hash`, 43 Zeichen Base64url).
+- Die App sendet nur die Prüfsumme (im Register „Netzwerk“: eine Anfrage `POST …/v1/stamp/<Kennung>` (vorher die Vorabfrage `OPTIONS`), im Inhalt nur `hash` (43 Zeichen Base64url) und `"mode": "solo"`).
 - Unter „Externe Zeitstempel“ steht eine Zeile mit Dienst, Zeit laut Token (UTC), „bis Stempel Nr. …“ und der Seriennummer; im PDF und im angehängten JSON stehen dieselbe Seriennummer und das Token.
 - Ein Token, das nicht zur Prüfsumme passt, verändert oder von einem unbekannten Aussteller ist, wird abgelehnt („Das Token des Zeitstempeldienstes hat die Prüfung nicht bestanden. (…)“); es entsteht kein Eintrag. Antwortet der Weiterreicher mit „zu viele Anfragen“ (429), wartet die App die genannte Zeit ab („… nimmt vorerst keine weitere Anfrage an“) und fragt in der Zwischenzeit nicht nach.
 - Schritt 3: Vor dem Speichern versucht die App einen frischen Zeitstempel; im PDF stehen unter „Zeitstempel“ der Dienst, die Zeit des Tokens, „deckt die Stempel bis Nr. …“ und die Prüfsumme. Im angehängten JSON stehen die Stempel des Monats und alle Anker samt Token (Base64).

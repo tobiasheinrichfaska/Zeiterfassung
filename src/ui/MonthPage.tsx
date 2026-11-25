@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   LOG_NOTICE,
   anchorStatusText,
+  evidenceSerial,
   formatIsoDateTime,
   stampsOfMonth,
   changedDates,
@@ -359,10 +360,12 @@ export function MonthPage() {
                 <tbody>
                   {book.anchors.map((a) => (
                     <tr key={a.coveredN}>
-                      <td style={styles.cell}>{a.tsaId}</td>
-                      <td style={styles.cell}>{formatIsoDateTime(a.genTime)}</td>
+                      <td style={styles.cell}>{a.evidence.service}</td>
+                      <td style={styles.cell}>{formatIsoDateTime(a.evidence.genTime)}</td>
                       <td style={styles.cell}>Nr. {a.coveredN}</td>
-                      <td style={{ ...styles.cell, wordBreak: 'break-all' }}>{a.serial}</td>
+                      <td style={{ ...styles.cell, wordBreak: 'break-all' }}>
+                        {evidenceSerial(a.evidence) ?? '–'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
