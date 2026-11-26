@@ -8,6 +8,9 @@ const SCRIPT = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
 const STYLE = /<style\b([^>]*)>([\s\S]*?)<\/style>/gi;
 const CHARSET = /<meta charset="UTF-8" \/>|<meta charset="utf-8">/i;
 const POLICY_META = /<meta[^>]+http-equiv=["']?Content-Security-Policy/i;
+const SCHEME_ONLY = /^[a-z][a-z0-9+.-]*:$/i;
+const ORIGIN =
+  /^(?:https:\/\/[A-Za-z0-9.-]+|http:\/\/(?:localhost|127\.0\.0\.1|\[::1\]))(?::\d{1,5})?$/;
 const RAW_TEXT = /<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/iy;
 
 /** The directives `cspFor` writes: the documented default set. Any other directive is a problem. */
@@ -26,7 +29,7 @@ export const KNOWN_DIRECTIVES: readonly string[] = [
 ];
 
 export type CspOptions = {
-  /** Origins `connect-src` allows (e.g. `https://relay.example`). None → `'none'`. */
+  /** Origins `connect-src` allows: `https://host[:port]`, or `http://` for localhost/127.0.0.1/[::1] only (`addCsp` throws on anything else). None → `'none'`. */
   connectOrigins?: readonly string[];
 };
 
@@ -111,6 +114,10 @@ export function addCsp(source: string, options: CspOptions = {}): string {
   }
   if (scripts.length === 0) throw new Error('The page has no inline script');
   const styles = [...markup.matchAll(STYLE)];
+  for (const origin of options.connectOrigins ?? []) {
+    if (!ORIGIN.test(origin))
+      throw new Error(`Not an origin of the form scheme://host[:port]: ${origin}`);
+  }
   const policy = cspFor(
     scripts.map((match) => hashOf(match[2] ?? '')),
     styles.map((match) => hashOf(match[2] ?? '')),
@@ -198,11 +205,17 @@ export function checkCsp(source: string, options: CspOptions = {}): CspCheck {
     if (!same(policy.get(directive) ?? [], ["'none'"])) problems.push(`${directive} is not 'none'`);
   }
   if (!same(policy.get('img-src') ?? [], ['data:'])) problems.push('img-src is not data:');
-  if (options.connectOrigins !== undefined) {
-    const wanted = options.connectOrigins.length > 0 ? options.connectOrigins : ["'none'"];
-    if (!same(policy.get('connect-src') ?? [], wanted)) {
-      problems.push('connect-src is not exactly the given origins');
-    }
+  // without connectOrigins the page may not connect anywhere; with them: exactly that list
+  const wantedConnect =
+    options.connectOrigins !== undefined && options.connectOrigins.length > 0
+      ? options.connectOrigins
+      : ["'none'"];
+  const connect = policy.get('connect-src') ?? [];
+  if (!same(connect, wantedConnect)) {
+    problems.push("connect-src is not exactly the given origins (none: 'none')");
+  }
+  if (connect.some((source) => SCHEME_ONLY.test(source) || source.includes('*'))) {
+    problems.push('connect-src allows a whole scheme or a wildcard');
   }
   const all = [...policy.values()].flat().join(' ');
   if (/unsafe-inline|unsafe-eval|\*|blob:|ws:|javascript:/.test(all)) {

@@ -107,6 +107,45 @@ describe('the fixture page', () => {
   });
 });
 
+describe('addCsp origin validation', () => {
+  const html = page('<script>1</script>');
+  it('refuses anything but scheme://host[:port]', () => {
+    for (const bad of [
+      'https://r; frame-src https://evil',
+      'https://r"',
+      'https://r.example/path',
+      'https://r.example/',
+      'https://r.example,https://b.example',
+      'https://r.example ',
+      'https://r\n.example',
+      'https://r.example?x',
+      'https://u@r.example',
+      'http://relay.example',
+      'ftp://r.example',
+      'https:',
+      '*',
+      'https://*.example',
+      'https://',
+      'relay.example',
+      '',
+    ]) {
+      expect(() => addCsp(html, { connectOrigins: [bad] }), JSON.stringify(bad)).toThrow();
+    }
+  });
+  it('accepts https hosts with port and http for loopback names', () => {
+    const origins = [
+      'https://relay.example',
+      'https://relay.example:8443',
+      'http://localhost:8080',
+      'http://127.0.0.1:1',
+      'http://[::1]:3000',
+    ];
+    expect(policyOf(addCsp(html, { connectOrigins: origins }))).toContain(
+      `connect-src ${origins.join(' ')};`,
+    );
+  });
+});
+
 describe('checkCsp', () => {
   const good = addCsp(fixture);
 
@@ -146,6 +185,26 @@ describe('checkCsp', () => {
       '<meta http-equiv="Content-Security-Policy" content="x"></head>',
     );
     expect(checkCsp(twice).ok).toBe(false);
+  });
+
+  it('without connectOrigins, connect-src must be none; scheme-only and wildcard sources are problems', () => {
+    for (const bad of [
+      'https:',
+      'http:',
+      'data:',
+      '*',
+      'https://*.example',
+      'https://relay.example',
+    ]) {
+      const out = checkCsp(good.replace("connect-src 'none'", `connect-src ${bad}`));
+      expect(out.ok, bad).toBe(false);
+    }
+    expect(checkCsp(good.replace("connect-src 'none'", '')).ok).toBe(false);
+    const withOrigin = addCsp(fixture, { connectOrigins: ['https://relay.example'] });
+    expect(checkCsp(withOrigin).ok).toBe(false);
+    expect(checkCsp(withOrigin, { connectOrigins: ['https://relay.example'] }).ok).toBe(true);
+    const scheme = withOrigin.replace('connect-src https://relay.example', 'connect-src https:');
+    expect(checkCsp(scheme, { connectOrigins: ['https:'] }).ok).toBe(false);
   });
 
   it('ignores tags the bundled code only mentions as text', () => {
