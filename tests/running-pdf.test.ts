@@ -123,7 +123,7 @@ describe('running monthly PDF', () => {
     for (const date of DAYS) {
       const a = found.find((f) => f.name === runningDayName(date))!;
       const text = new TextDecoder().decode(a.data);
-      expect(text).toBe(val(monthToJson(book, '2026-11', at(date), date)));
+      expect(text).toBe(val(monthToJson(book, '2026-11', at(date), date, 0)));
       const parsed = JSON.parse(text);
       expect(parsed.upTo).toBe(date);
       expect(parsed.days.map((d: { date: string }) => d.date)).toEqual(

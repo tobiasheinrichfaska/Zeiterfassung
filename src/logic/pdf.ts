@@ -79,7 +79,12 @@ export function timestampLines(t: TimestampSection): string[] {
       ? `Stempel mit zurückgestellter Geräteuhr: Nr. ${t.skewNumbers.join(', ')}.`
       : 'Keine Stempel mit zurückgestellter Geräteuhr.',
   );
+  // only the anchors that concern this month's stamps (`anchorsForStamps`), not every one of the book
   if (t.anchors.length === 0) lines.push('Keine externen Zeitstempel vorhanden.');
+  else
+    lines.push(
+      'Aufgeführt sind nur die externen Zeitstempel, die die Stempel dieses Monats zuerst abdecken, und der letzte davor.',
+    );
   for (const a of t.anchors) {
     lines.push(
       `Externer Zeitstempel: ${a.evidence.service}, ${formatIsoDateTime(a.evidence.genTime)}, deckt die Stempel bis Nr. ${a.coveredN} ab`,

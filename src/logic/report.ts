@@ -20,13 +20,38 @@ export interface TimestampSection {
   monthCovered: boolean;
   /** The first stamp of the month no anchor covers (null when all are covered or there are none). */
   firstUncovered: Stamp | null;
+  /** Only the anchors that concern the month's stamps (`anchorsForStamps`), not every anchor of the book. */
   anchors: Anchor[];
+  /** Set for a running PDF's day file: anchors up to this stamp number are in an earlier file already. */
+  anchorsAfterN?: number;
+}
+
+/**
+ * The anchors a month's report shows: for every given stamp the **first** anchor that covers it (the
+ * oldest with `coveredN >= n`; a later anchor covers the whole chain up to its own stamp, so this is the
+ * earliest proof for that stamp), plus the newest anchor **before** the first of the stamps (it shows the
+ * state of the chain before the month). Each anchor once, in the book's order (rising `coveredN`). No
+ * stamps: no anchors.
+ */
+export function anchorsForStamps(anchors: readonly Anchor[], stamps: readonly Stamp[]): Anchor[] {
+  if (stamps.length === 0) return [];
+  const pick = new Set<number>();
+  const first = Math.min(...stamps.map((s) => s.n));
+  let before = -1;
+  for (const [i, a] of anchors.entries()) if (a.coveredN < first) before = i;
+  if (before >= 0) pick.add(before);
+  for (const s of stamps) {
+    const i = anchors.findIndex((a) => a.coveredN >= s.n);
+    if (i >= 0) pick.add(i);
+  }
+  return anchors.filter((_, i) => pick.has(i));
 }
 
 export function monthTimestamps(
   book: TimeBook,
   month: MonthKey,
   createdIso: string,
+  anchorsAfterN?: number,
 ): TimestampSection {
   const stamps = stampsOfMonth(book, month);
   const covered = coveredUpTo(book);
@@ -38,7 +63,10 @@ export function monthTimestamps(
     status: anchorStatus(book, createdIso),
     monthCovered: firstUncovered === null,
     firstUncovered,
-    anchors: book.anchors,
+    anchors: anchorsForStamps(book.anchors, stamps).filter(
+      (a) => anchorsAfterN === undefined || a.coveredN > anchorsAfterN,
+    ),
+    ...(anchorsAfterN === undefined ? {} : { anchorsAfterN }),
   };
 }
 
@@ -62,15 +90,22 @@ export function bookUpTo(book: TimeBook, upTo: DateKey): TimeBook {
 /**
  * The monthly data as the attached file: format and version, employee label, creation time, the days
  * with their sums, the open days and the logged changes of the month. With `upTo` (running monthly PDF)
- * only the days and changes up to and including that date, and the field `upTo` says so.
+ * only the days and changes up to and including that date, and the field `upTo` says so. With
+ * `anchorsAfterN` (running monthly PDF: the highest `coveredN` an earlier file of the same PDF lists) only
+ * the anchors above it are listed (`timestamps.anchorsAfterN` says so): the files of one PDF together hold
+ * every anchor once, instead of each day file repeating all of them.
  */
 export function monthToJson(
   book: TimeBook,
   month: MonthKey,
   createdIso: string,
   upTo?: DateKey,
+  anchorsAfterN?: number,
 ): Result<string> {
   if (!isMonthKey(month)) return fail('bad-month');
+  if (anchorsAfterN !== undefined && !(Number.isInteger(anchorsAfterN) && anchorsAfterN >= 0)) {
+    return fail('bad-anchor');
+  }
   if (upTo !== undefined) {
     if (!isDateKey(upTo) || monthOf(upTo) !== month) return fail('bad-date');
     book = bookUpTo(book, upTo);
@@ -113,13 +148,16 @@ export function monthToJson(
       totalWorkMinutes: s.workMinutes,
       openDays: s.openDays,
       changes,
-      timestamps: timestampsJson(monthTimestamps(book, month, createdIso), book.stampBase),
+      timestamps: timestampsJson(
+        monthTimestamps(book, month, createdIso, anchorsAfterN),
+        book.stampBase,
+      ),
       ...(upTo === undefined ? {} : { upTo }),
     }),
   );
 }
 
-/** The section as data for the attached file: the month's stamps, every anchor with its token. */
+/** The section as data for the attached file: the month's stamps, the month's anchors with their tokens. */
 function timestampsJson(t: TimestampSection, base: StampBase | null): Json {
   return {
     note:
@@ -134,6 +172,7 @@ function timestampsJson(t: TimestampSection, base: StampBase | null): Json {
     monthCovered: t.monthCovered,
     firstUncoveredN: t.firstUncovered?.n ?? null,
     skewNumbers: t.skewNumbers,
+    ...(t.anchorsAfterN === undefined ? {} : { anchorsAfterN: t.anchorsAfterN }),
     stamps: t.stamps.map((s) => ({ ...s })),
     anchors: t.anchors.map((a) => ({
       coveredN: a.coveredN,

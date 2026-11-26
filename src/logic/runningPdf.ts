@@ -247,18 +247,44 @@ export function runningDayLayout(
   };
 }
 
-/** The month of a running PDF (from its start attachment) and the days it holds. */
-async function readRunning(file: PdfFile): Promise<{ month: MonthKey; days: DateKey[] } | null> {
+/** The highest `coveredN` of the anchors a day file lists (0 when none or not readable). */
+function anchorsListedIn(data: Uint8Array): number {
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(data));
+    const anchors = (parsed as { timestamps?: { anchors?: unknown } }).timestamps?.anchors;
+    if (!Array.isArray(anchors)) return 0;
+    let max = 0;
+    for (const a of anchors) {
+      const n = (a as { coveredN?: unknown } | null)?.coveredN;
+      if (typeof n === 'number' && Number.isInteger(n) && n > max) max = n;
+    }
+    return max;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * The month of a running PDF (from its start attachment), the days it holds and the highest anchor
+ * number its day files list already (`anchorsN`: the next day file lists only newer anchors).
+ */
+async function readRunning(
+  file: PdfFile,
+): Promise<{ month: MonthKey; days: DateKey[]; anchorsN: number } | null> {
   let month: MonthKey | null = null;
   const days: DateKey[] = [];
+  let anchorsN = 0;
   for (const a of await readAttachments(file)) {
     const start = START_RE.exec(a.name);
     if (start) month = start[1] ?? null;
     const day = DAY_RE.exec(a.name);
-    if (day) days.push(`${day[1]}-${day[2]}`);
+    if (day) {
+      days.push(`${day[1]}-${day[2]}`);
+      anchorsN = Math.max(anchorsN, anchorsListedIn(a.data));
+    }
   }
   if (month === null) return null;
-  return { month, days: days.filter((d) => d.startsWith(`${month}-`)).sort() };
+  return { month, days: days.filter((d) => d.startsWith(`${month}-`)).sort(), anchorsN };
 }
 
 const latin1 = (bytes: Uint8Array): string => {
@@ -323,7 +349,7 @@ export async function appendRunningDay(
   // a day added late (earlier than a day already in the file) still shows the month up to the newest day
   const newest = running.days[running.days.length - 1];
   const upTo = newest !== undefined && newest > date ? newest : date;
-  const json = monthToJson(book, running.month, modified, upTo);
+  const json = monthToJson(book, running.month, modified, upTo, running.anchorsN);
   if (!json.ok) return json;
   const hash = sha256Hex(json.value);
   const layout = runningDayLayout(book, date, modified, hash, upTo);

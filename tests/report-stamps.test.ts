@@ -80,11 +80,12 @@ describe('the section „Zeitstempel“ in the JSON attachment', () => {
     expect(data.version).toBe(3);
   });
 
-  it('only has the stamps of the month asked for, but every anchor and the head', () => {
+  it('only has the stamps of the month asked for and only their anchors, but the head', () => {
     const b = anchored(book(), 2, iso(25, 8, 1), iso(25, 8, 5));
     const t = JSON.parse(val(monthToJson(b, '2026-10', CREATED))).timestamps;
     expect(t.stamps).toEqual([]);
-    expect(t.anchors).toHaveLength(1);
+    // no stamp of October: no anchor of November is listed there (H1)
+    expect(t.anchors).toHaveLength(0);
     expect(t.chainHeadN).toBe(4);
     expect(t.monthCovered).toBe(true);
   });
