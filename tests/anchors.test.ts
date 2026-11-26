@@ -12,17 +12,13 @@ import {
   emptyBook,
   exportBackup,
   importBackup,
-  base64UrlToBytes,
-  bytesToBase64Url,
   hexToBytes,
-  parseRelayAnswer,
-  parseServiceList,
   stampIn,
   stampOut,
   type Anchor,
   type TimeBook,
 } from '../src/logic/index.ts';
-import { val } from './helpers.ts';
+import { evidenceFor, val } from './helpers.ts';
 
 const RELAY = 'https://relay.example';
 const iso = (day: number, h = 8, m = 0, s = 0) =>
@@ -37,15 +33,20 @@ const book = (relay = RELAY): TimeBook => {
   return val(stampOut(b, at('2026-11-20', 16), iso(20, 16)));
 };
 
-const anchorFor = (b: TimeBook, n: number, over: Partial<Anchor> = {}): Anchor => ({
-  tsaId: 'test-tsa',
-  genTime: iso(20, 16, 1),
-  serial: '0a1b2c',
-  coveredN: n,
-  headHash: b.stamps[n - 1]?.hash ?? '0'.repeat(64),
-  token: bytesToBase64(Uint8Array.from([1, 2, 3, 4, 5])),
-  ...over,
-});
+/** An anchor for stamp n; `genTime`, `token`, `service` … go into its evidence (form only). */
+const anchorFor = (
+  b: TimeBook,
+  n: number,
+  over: { coveredN?: number; headHash?: string } & Parameters<typeof evidenceFor>[1] = {},
+): Anchor => {
+  const { coveredN, headHash, ...ev } = over;
+  const hash = headHash ?? b.stamps[n - 1]?.hash ?? '0'.repeat(64);
+  return {
+    coveredN: coveredN ?? n,
+    headHash: hash,
+    evidence: evidenceFor(hash, { genTime: iso(20, 16, 1), ...ev }),
+  };
+};
 
 describe('anchorStatus', () => {
   it('is off without a relay, with the counts still given', () => {
@@ -156,43 +157,54 @@ describe('addAnchor', () => {
     expect(addAnchor(first, anchorFor(b, 1), now)).toEqual({ ok: false, reason: 'bad-anchor' });
   });
 
-  it('refuses a token that is empty, not Base64, not padded to four, or too long', () => {
-    for (const token of ['', '!!!!', 'abc', 'ab=c', 'A'.repeat(LIMITS.maxAnchorTokenChars + 4)]) {
-      expect(addAnchor(b, anchorFor(b, 2, { token }), now), token.slice(0, 8)).toEqual({
+  it('refuses evidence that does not pass the strict reader (form, version, members, base64url)', () => {
+    for (const over of [
+      { v: 2 },
+      { kind: 'tree' },
+      { service: 'Free TSA' },
+      { hashAlg: 'sha1' },
+      { receivedAtMs: 1.5 },
+      { token: '' },
+      { token: 'AQID=' }, // padding: not base64url
+      { token: 'AQI+' }, // standard alphabet
+      { genTime: 'gestern' },
+      { genTime: '2026-11-20T16:01:00Z' }, // no milliseconds
+      { extra: 1 },
+    ]) {
+      expect(addAnchor(b, anchorFor(b, 2, over), now), JSON.stringify(over)).toEqual({
         ok: false,
         reason: 'bad-anchor',
       });
     }
-    expect(
-      addAnchor(b, anchorFor(b, 2, { token: 'A'.repeat(LIMITS.maxAnchorTokenChars) }), now).ok,
-    ).toBe(true);
+    const batch = anchorFor(b, 2, { kind: 'batch' }); // batch without its receipt
+    expect(addAnchor(b, batch, now)).toEqual({ ok: false, reason: 'bad-anchor' });
+    expect(addAnchor(b, { ...anchorFor(b, 2), evidence: 'kein Beleg' as never }, now).ok).toBe(
+      false,
+    );
   });
 
-  it('refuses a missing, empty, upper-case or too long serial number', () => {
-    for (const serial of ['', 'ABC', '0x1', 'g1', ' 1', 'a'.repeat(LIMITS.maxSerialChars + 1)]) {
-      expect(addAnchor(b, anchorFor(b, 2, { serial }), now), serial).toEqual({
-        ok: false,
-        reason: 'bad-anchor',
-      });
-    }
-    expect(
-      addAnchor(b, anchorFor(b, 2, { serial: 'a'.repeat(LIMITS.maxSerialChars) }), now).ok,
-    ).toBe(true);
-    const without: Partial<Anchor> = anchorFor(b, 2);
-    delete without.serial;
-    expect(addAnchor(b, without as Anchor, now)).toEqual({ ok: false, reason: 'bad-anchor' });
+  it('refuses evidence for another hash than the covered stamp', () => {
+    const other = anchorFor(b, 2);
+    other.evidence = evidenceFor(b.stamps[0]!.hash, { genTime: iso(20, 16, 1) });
+    expect(addAnchor(b, other, now)).toEqual({ ok: false, reason: 'bad-anchor' });
   });
 
-  it('refuses a bad service name and a bad time', () => {
-    expect(addAnchor(b, anchorFor(b, 2, { tsaId: '' }), now).ok).toBe(false);
-    expect(
-      addAnchor(b, anchorFor(b, 2, { tsaId: 'x'.repeat(LIMITS.maxTsaIdChars + 1) }), now).ok,
-    ).toBe(false);
-    expect(addAnchor(b, anchorFor(b, 2, { tsaId: 'a\nb' }), now).ok).toBe(false);
-    expect(addAnchor(b, anchorFor(b, 2, { genTime: 'gestern' }), now)).toEqual({
+  it('refuses a token longer than the limit', () => {
+    const chars = LIMITS.maxAnchorTokenChars;
+    const fits = new Uint8Array((chars / 4) * 3); // exactly `chars` base64url characters
+    expect(addAnchor(b, anchorFor(b, 2, { tokenBytes: fits }), now).ok).toBe(true);
+    const tooLong = new Uint8Array((chars / 4) * 3 + 3);
+    expect(addAnchor(b, anchorFor(b, 2, { tokenBytes: tooLong }), now)).toEqual({
       ok: false,
       reason: 'bad-anchor',
     });
+  });
+
+  it('keeps a fresh copy of the evidence (no reference to the caller’s object)', () => {
+    const anchor = anchorFor(b, 2);
+    const r = val(addAnchor(b, anchor, now));
+    expect(r.anchors[0]!.evidence).toEqual(anchor.evidence);
+    expect(r.anchors[0]!.evidence).not.toBe(anchor.evidence);
   });
 
   it('refuses a token time that does not fit the device clock (before the stamp, in the future)', () => {
@@ -231,7 +243,8 @@ describe('anchors in the backup', () => {
   const b = book();
   const withAnchor = val(addAnchor(b, anchorFor(b, 1, { genTime: iso(20, 8, 2) }), iso(20, 8, 5)));
   const two = val(
-    addAnchor(withAnchor, anchorFor(b, 2, { genTime: iso(20, 16, 1) }), iso(20, 16, 5)),
+    // on the next day: two anchors of one day would be thinned to the newest (`thinAnchors`)
+    addAnchor(withAnchor, anchorFor(b, 2, { genTime: iso(21, 8, 1) }), iso(21, 8, 5)),
   );
   const edit = (f: (o: Record<string, any>) => void) => {
     const o = JSON.parse(exportBackup(two));
@@ -255,6 +268,41 @@ describe('anchors in the backup', () => {
     expect(edit((o) => (o.anchors = 'x'))).toEqual({ ok: false, reason: 'bad-backup' });
   });
 
+  it('refuses an anchor whose evidence is changed or of the old format', () => {
+    expect(edit((o) => (o.anchors[0].evidence.hash = o.anchors[1].evidence.hash))).toEqual({
+      ok: false,
+      reason: 'bad-backup',
+    });
+    expect(edit((o) => delete o.anchors[0].evidence.genTime)).toEqual({
+      ok: false,
+      reason: 'bad-backup',
+    });
+    expect(
+      edit((o) => {
+        o.anchors[0] = { tsaId: 'freetsa', genTime: iso(20, 8, 2), serial: '1', token: 'AQID' };
+      }),
+    ).toEqual({ ok: false, reason: 'bad-backup' });
+  });
+
+  it('reads version 3 only without anchors; an anchor of format 3 is refused with its own code', () => {
+    const v3 = (anchors: unknown[]) => {
+      const o = JSON.parse(exportBackup(b));
+      o.version = 3;
+      o.anchors = anchors;
+      return importBackup(JSON.stringify(o));
+    };
+    expect(val(v3([]))).toEqual(b);
+    const old = {
+      tsaId: 'freetsa',
+      genTime: iso(20, 8, 2),
+      serial: '0a1b',
+      coveredN: 1,
+      headHash: b.stamps[0]!.hash,
+      token: 'AQIDBA==',
+    };
+    expect(v3([old])).toEqual({ ok: false, reason: 'old-anchor-format' });
+  });
+
   it('refuses more anchors than the limit', () => {
     expect(
       edit((o) => (o.anchors = Array.from({ length: LIMITS.maxAnchors + 1 }, () => o.anchors[0]))),
@@ -270,93 +318,14 @@ describe('anchors in the backup', () => {
   });
 });
 
-describe('the relay answer', () => {
-  const good = {
-    service: 'freetsa',
-    genTime: iso(20, 16, 1),
-    accuracyMs: null,
-    serial: '0a1b',
-    token: bytesToBase64Url(Uint8Array.from([251, 255, 254, 7])),
-  };
-
-  it('reads exactly service, genTime, accuracyMs, serial and token (Base64url)', () => {
-    const r = parseRelayAnswer(good);
-    expect(r.ok && [...r.value.token]).toEqual([251, 255, 254, 7]);
-    expect(r.ok && r.value).toMatchObject({
-      tsaId: 'freetsa',
-      serial: '0a1b',
-      genTime: good.genTime,
-    });
-    expect(parseRelayAnswer({ ...good, accuracyMs: 1000 }).ok).toBe(true);
-  });
-
-  it('is a bad response for anything else', () => {
-    for (const bad of [
-      null,
-      [],
-      'x',
-      5,
-      { ...good, extra: 1 },
-      { service: 'a', genTime: good.genTime },
-      { ...good, tsaId: 'freetsa' }, // the old name is not accepted
-      { ...good, service: '' },
-      { ...good, service: 'Free TSA' },
-      { ...good, service: 5 },
-      { ...good, genTime: 'x' },
-      { ...good, accuracyMs: -1 },
-      { ...good, accuracyMs: 1.5 },
-      { ...good, accuracyMs: '1' },
-      { ...good, serial: '' },
-      { ...good, serial: '0A' },
-      { ...good, serial: 'a'.repeat(LIMITS.maxSerialChars + 1) },
-      { ...good, token: '' },
-      { ...good, token: '***' },
-      { ...good, token: 'a+b/' }, // standard alphabet and padding are not Base64url
-      { ...good, token: 'abcd=' },
-      { ...good, token: 'A' }, // one character is no Base64
-      { ...good, token: 'A'.repeat(LIMITS.maxAnchorTokenChars) },
-    ]) {
-      const r = parseRelayAnswer(bad);
-      expect(r.ok, JSON.stringify(bad)?.slice(0, 60)).toBe(false);
-      expect(!r.ok && r.reason).toBe('bad-response');
-    }
-  });
-
+describe('the anchor of a verified answer', () => {
   it('turns the answer into the anchor of the request', () => {
     const b2 = book();
     const req = anchorRequest(b2)!;
-    const r = parseRelayAnswer(good);
-    if (!r.ok) throw new Error('unexpected');
-    const anchor = anchorFromOutcome(req, r.value);
-    expect(anchor).toEqual({
-      tsaId: 'freetsa',
-      genTime: good.genTime,
-      serial: '0a1b',
-      coveredN: 2,
-      headHash: req.hash,
-      token: bytesToBase64(Uint8Array.from([251, 255, 254, 7])),
-    });
+    const evidence = evidenceFor(req.hash, { genTime: iso(20, 16, 1) });
+    const anchor = anchorFromOutcome(req, { evidence });
+    expect(anchor).toEqual({ coveredN: 2, headHash: req.hash, evidence });
     expect(addAnchor(b2, anchor, iso(20, 16, 5)).ok).toBe(true);
-  });
-
-  it('reads the list of services', () => {
-    expect(
-      parseServiceList({ services: [{ id: 'freetsa', name: 'x' }, { id: 'sectigo' }] }),
-    ).toEqual(['freetsa', 'sectigo']);
-    expect(parseServiceList({ services: [] })).toEqual([]);
-    for (const bad of [
-      null,
-      'x',
-      {},
-      { services: 'x' },
-      { services: [{}] },
-      { services: [{ id: 'A' }] },
-    ]) {
-      expect(parseServiceList(bad), JSON.stringify(bad)).toBeNull();
-    }
-    expect(
-      parseServiceList({ services: Array.from({ length: 33 }, () => ({ id: 'a' })) }),
-    ).toBeNull();
   });
 
   it('has a German text for every failure kind', () => {
@@ -364,18 +333,11 @@ describe('the relay answer', () => {
       expect(text.length, kind).toBeGreaterThan(10);
   });
 
-  it('converts Base64, Base64url and hex', () => {
+  it('converts Base64 and hex', () => {
     const bytes = Uint8Array.from({ length: 300 }, (_, i) => (i * 13) & 0xff);
     expect(base64ToBytes(bytesToBase64(bytes))).toEqual(bytes);
     expect(base64ToBytes('abc')).toBeNull();
     expect(base64ToBytes('')).toBeNull();
-    for (const n of [1, 2, 3, 4, 31, 32, 33, 300]) {
-      const part = bytes.slice(0, n);
-      const text = bytesToBase64Url(part);
-      expect(text).not.toMatch(/[+/=]/);
-      expect(base64UrlToBytes(text), String(n)).toEqual(part);
-    }
-    expect(base64UrlToBytes('')).toBeNull();
     expect(hexToBytes('ab'.repeat(32))).toEqual(new Uint8Array(32).fill(0xab));
     expect(hexToBytes('AB'.repeat(32))).toBeNull();
     expect(hexToBytes('ab')).toBeNull();

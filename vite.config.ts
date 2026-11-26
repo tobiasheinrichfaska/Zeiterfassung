@@ -5,7 +5,7 @@ import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import { withCsp } from './src/build/csp.ts';
-import { parseRelayList, relayOrigin } from './src/logic/relay.ts';
+import { audienceOk, parseRelayList, relayOrigin } from './src/logic/relay.ts';
 
 /**
  * The Content-Security-Policy with the hash of what the single-file step inlined — applied to the
@@ -30,6 +30,13 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
   const relays = parseRelayList(env.VITE_TIMESTAMP_RELAY);
   const origins = [...new Set(relays.map(relayOrigin))];
+  // the audience the app signs (`RELAY_AUDIENCE` of the relay); unset = each relay's origin
+  const audience = (env.VITE_TIMESTAMP_AUDIENCE ?? '').trim();
+  if (audience !== '' && !audienceOk(audience)) {
+    throw new Error(
+      'VITE_TIMESTAMP_AUDIENCE ist ungültig (druckbares ASCII ohne Leerzeichen, 1 bis 128 Zeichen).',
+    );
+  }
   return {
     // Relative asset paths so the single file also runs from file://
     base: './',

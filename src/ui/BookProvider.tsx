@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import type { Vault } from 'local-vault';
 import {
   BOOK_SLOT,
+  checkDaysAgainstChain,
   loadBook,
   reasonText,
   serializeBook,
@@ -9,6 +10,7 @@ import {
   type Result,
   type TimeBook,
 } from '../logic/index.ts';
+import { watchSaves } from '../io/saveWatch.ts';
 import { BookContext, type BookApi } from './bookContext.ts';
 import { styles } from './styles.ts';
 import { useLatest } from './useLatest.ts';
@@ -23,10 +25,17 @@ export function BookProvider({ vault, children }: { vault: Vault; children: Reac
     loaded.kind === 'ok' ? loaded.book : undefined,
   );
   const [error, setError] = useState<string | undefined>();
+  // checked once on load: the app's own writes keep days and chain in step
+  const [chainMismatch] = useState<readonly string[]>(() =>
+    loaded.kind === 'ok' ? checkDaysAgainstChain(loaded.book) : [],
+  );
   const latest = useLatest<TimeBook | undefined>(book);
   const getBook = latest.get as () => TimeBook;
 
-  useEffect(() => vault.onError(setError), [vault]);
+  // a write that failed after the fact (full storage …): a standing banner until the book is stored again
+  const [unsaved, setUnsaved] = useState<string | undefined>();
+  const [watch] = useState(() => watchSaves(vault, setUnsaved));
+  useEffect(() => watch.start(), [watch]);
 
   const apply = useCallback(
     (result: Result<TimeBook>): boolean => {
@@ -39,12 +48,13 @@ export function BookProvider({ vault, children }: { vault: Vault; children: Reac
         setError(refused);
         return false;
       }
+      watch.wrote();
       latest.set(result.value);
       setBook(result.value);
       setError(undefined);
       return true;
     },
-    [vault, latest],
+    [vault, latest, watch],
   );
 
   const api = useMemo<BookApi | undefined>(
@@ -56,10 +66,12 @@ export function BookProvider({ vault, children }: { vault: Vault; children: Reac
             getBook,
             apply,
             error,
+            unsaved,
+            chainMismatch,
             showError: setError,
             dismissError: () => setError(undefined),
           },
-    [book, getBook, apply, error],
+    [book, getBook, apply, error, unsaved, chainMismatch],
   );
 
   if (loaded.kind === 'unreadable' || api === undefined) {

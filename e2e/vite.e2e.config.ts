@@ -11,9 +11,10 @@ const swapTrustAnchors = (): Plugin => ({
   name: 'e2e-trust',
   enforce: 'pre',
   resolveId(source, importer) {
-    return importer?.endsWith('src/io/anchorService.ts') && source === './zeitstempel.ts'
-      ? trust
-      : null;
+    // every importer of the trust: the relay adapter and the check of stored and restored anchors
+    const trusting =
+      importer?.endsWith('src/io/anchorService.ts') || importer?.endsWith('src/io/anchorCheck.ts');
+    return trusting && source === './zeitstempel.ts' ? trust : null;
   },
 });
 

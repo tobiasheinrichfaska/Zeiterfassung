@@ -1,10 +1,16 @@
 import { createVault, type VaultConfig, type VaultEnvironment } from 'local-vault';
-import { BOOK_SLOT, DRAFT_SLOT } from '../logic/index.ts';
+import { VAULT_SLOTS } from '../logic/index.ts';
 
-/** The app's vault: prefix and slot are fixed for good (a changed prefix makes stored data unreadable). */
+/**
+ * The app's vault: prefix and slots are fixed for good (a changed prefix makes stored data unreadable).
+ * Besides the book and the draft: two slots for the running monthly PDFs (`monatspdf-a`, `monatspdf-b`:
+ * current and previous month). The slot
+ * `geraeteschluessel` holds only the device key's id; the key itself is a non-extractable CryptoKey in
+ * IndexedDB (`src/io/keyStore.ts`).
+ */
 export const vaultConfig: VaultConfig = {
   prefix: 'zeiterfassung',
-  slots: [BOOK_SLOT, DRAFT_SLOT],
+  slots: [...VAULT_SLOTS],
   texts: {
     title: 'Zeiterfassung',
     opening: 'Die Daten werden geöffnet …',

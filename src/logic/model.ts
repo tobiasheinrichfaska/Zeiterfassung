@@ -1,3 +1,4 @@
+import type { Evidence } from './evidence.ts';
 /** Data model of the time book. Pure types and constants, no I/O (workspace rule: logic layer). */
 
 /** Local calendar day, `YYYY-MM-DD`. */
@@ -90,18 +91,18 @@ export interface StampBase {
   at: string;
 }
 
-/** The proof of an external time stamping service for the chain head at `coveredN`. */
+/**
+ * The proof of an external time stamping service for the chain head at `coveredN`: the evidence of
+ * `zeitstempel/client` (format v1) for exactly that hash. Service, time and token are read from it.
+ */
 export interface Anchor {
-  /** The service's id as the relay offers it (for example `freetsa`). */
-  tsaId: string;
-  /** The time the token says (not the device clock). */
-  genTime: string;
-  /** The token's serial number (lower-case hex), as the service issued it. */
-  serial: string;
   coveredN: number;
   headHash: string;
-  /** The RFC 3161 time stamp token (DER) as Base64 (standard alphabet), for checking with other tools. */
-  token: string;
+  /**
+   * The evidence as the client gave it after checking the token: `service`, `hash` (= `headHash` as
+   * base64url), `genTime` (the token's time, not the device clock), `token` (DER as base64url).
+   */
+  evidence: Evidence;
 }
 
 export interface Settings {
@@ -131,7 +132,7 @@ export interface TimeBook {
 }
 
 export const BOOK_FORMAT = 'zeiterfassung-buch';
-export const BOOK_VERSION = 3;
+export const BOOK_VERSION = 4;
 
 /** Every limit in one place; tests tie their boundaries to it. */
 export const LIMITS = {
@@ -151,9 +152,8 @@ export const LIMITS = {
   /** From this length on, purging also shortens the chain (only what is gone and covered). */
   stampsCompactAt: 4500,
   maxAnchors: 400,
+  /** Longest token of an anchor's evidence, in base64url characters (about 12 KB of DER). */
   maxAnchorTokenChars: 16_384,
-  maxTsaIdChars: 100,
-  maxSerialChars: 64,
   maxRelayChars: 200,
   /** The head of the chain should be covered by an anchor no older than this. */
   anchorMaxAgeHours: 24,
@@ -204,6 +204,8 @@ export type Reason =
   | 'bad-anchor'
   | 'anchor-skew'
   | 'too-many-anchors'
+  | 'old-anchor-format'
+  | 'backup-days-mismatch'
   | 'bad-relay'
   | 'wrong-password'
   | 'password-required'
@@ -222,7 +224,15 @@ export type Reason =
   | 'second-open-day'
   | 'too-many-days'
   | 'bad-backup'
-  | 'unknown-version';
+  | 'unknown-version'
+  | 'bad-pdf'
+  | 'wrong-month'
+  | 'day-in-pdf'
+  | 'day-running'
+  | 'pdf-append-failed'
+  | 'device-key-format'
+  | 'device-key-id'
+  | 'device-key-unusable';
 
 export type Result<T> = { ok: true; value: T } | { ok: false; reason: Reason };
 

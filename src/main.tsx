@@ -4,6 +4,7 @@ import { VaultGate } from 'local-vault';
 import { App } from './ui/App.tsx';
 import { BookProvider } from './ui/BookProvider.tsx';
 import { AnchorProvider } from './ui/AnchorProvider.tsx';
+import { RunningPdfProvider } from './ui/RunningPdfProvider.tsx';
 import { DraftProvider } from './ui/DraftProvider.tsx';
 import { PromptProvider } from './ui/PromptProvider.tsx';
 import { vault } from './ui/vault.ts';
@@ -16,8 +17,10 @@ createRoot(root).render(
       <BookProvider vault={vault}>
         <DraftProvider vault={vault}>
           <PromptProvider>
-            <AnchorProvider>
-              <App />
+            <AnchorProvider vault={vault}>
+              <RunningPdfProvider vault={vault}>
+                <App />
+              </RunningPdfProvider>
             </AnchorProvider>
           </PromptProvider>
         </DraftProvider>

@@ -13,6 +13,8 @@ export interface Streams {
   embedded: { text: string; bytes: Uint8Array }[];
   /** All text shown on the pages, one string per drawn line, decoded through the fonts' ToUnicode maps. */
   shown: string;
+  /** The same, one string per page. */
+  pages: string[];
 }
 
 const decode = (s: PDFRawStream): Uint8Array => decodePDFRawStream(s).decode();
@@ -65,7 +67,9 @@ export async function inspect(bytes: Uint8Array): Promise<{ doc: PDFDocument; st
   }
 
   let shown = '';
+  const pages: string[] = [];
   for (const page of doc.getPages()) {
+    const pageStart = shown.length;
     const maps = new Map<string, Map<number, string>>();
     const fonts = page.node.Resources()?.lookupMaybe(PDFName.of('Font'), PDFDict);
     for (const [name, ref] of fonts?.entries() ?? []) {
@@ -98,6 +102,7 @@ export async function inspect(bytes: Uint8Array): Promise<{ doc: PDFDocument; st
         }
       }
     }
+    pages.push(shown.slice(pageStart));
   }
-  return { doc, streams: { embedded, shown } };
+  return { doc, streams: { embedded, shown, pages } };
 }

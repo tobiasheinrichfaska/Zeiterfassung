@@ -17,16 +17,17 @@ headless Chromium (mit Fenstergröße eines Handys, über `http://localhost`, St
 Ein zweiter Durchlauf am selben Tag (`e2e/README.md`) deckte MT-11, MT-16, MT-17, MT-18, MT-25 und MT-26 ab, MT-25/26
 gegen einen **lokalen** Zeitstempel-Weiterreicher mit Test-PKI statt eines echten Dienstes (Abweichungen: kein echter Dienst, andere
 Wurzelzertifikate). **Auf einem echten Gerät und in anderen Browsern hat sie noch niemand durchgespielt**, ebenso nicht MT-07,
-MT-19, MT-27 und MT-28 und nichts mit einem echten Zeitstempeldienst. Automatisch geprüft sind die
+MT-19, MT-27 bis MT-36 und nichts mit einem echten Zeitstempeldienst. Automatisch geprüft sind die
 Logik, das Lesen und Schreiben im Tresor (Speicher im Arbeitsspeicher), das PDF (zurückgelesen, Anhang
 und Summen) und der Navigationsbaum.
 
 ## Dateien
 
-| Datei                         | Inhalt                                                                   |
-| ----------------------------- | ------------------------------------------------------------------------ |
-| `01_start.md`                 | Start der Anwendung                                                      |
-| `02_stechuhr_und_formular.md` | Stempeln, Tag eintragen, Fehlermeldungen, Mitternacht                    |
-| `03_monat_sicherung_pdf.md`   | Monat, PDF mit Anhang, Sicherung, Aufbewahrung, Räder, Tresor            |
-| `04_aenderungsprotokoll.md`   | Änderungen an abgelaufenen Tagen, Protokoll, Aufbewahrung                |
-| `05_zeitstempel.md`           | Stempelkette, externer Zeitstempeldienst, fällig und überfällig, Bericht |
+| Datei                         | Inhalt                                                                                            |
+| ----------------------------- | ------------------------------------------------------------------------------------------------- |
+| `01_start.md`                 | Start der Anwendung                                                                               |
+| `02_stechuhr_und_formular.md` | Stempeln, Tag eintragen, Fehlermeldungen, Mitternacht                                             |
+| `03_monat_sicherung_pdf.md`   | Monat, PDF mit Anhang, Sicherung, Aufbewahrung, Räder, Tresor                                     |
+| `04_aenderungsprotokoll.md`   | Änderungen an abgelaufenen Tagen, Protokoll, Aufbewahrung                                         |
+| `05_zeitstempel.md`           | Stempelkette, externer Zeitstempeldienst, fällig und überfällig, Bericht, Geräteschlüssel (MT-37) |
+| `06_laufendes_monats_pdf.md`  | Laufendes Monats-PDF: Fortschreiben, Dokument-Zeitstempel, Monatswechsel                          |

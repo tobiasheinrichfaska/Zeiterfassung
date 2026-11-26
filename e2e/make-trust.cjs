@@ -7,6 +7,5 @@ const entry = (id) =>
 fs.mkdirSync('.tmp/e2e', { recursive: true });
 fs.writeFileSync(
   '.tmp/e2e/trust.ts',
-  "export * from '../../node_modules/zeitstempel/src/lib/index.ts';\n" +
-    `export const trustedServices = () => new Map([${entry('freetsa')}, ${entry('sectigo')}]);\n`,
+  `export const trustedServices = () => new Map([${entry('freetsa')}, ${entry('sectigo')}]);\n`,
 );

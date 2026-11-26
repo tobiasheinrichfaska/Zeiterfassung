@@ -1,6 +1,7 @@
 import { useState, type ChangeEvent } from 'react';
 import {
   BACKUP_CRYPTO,
+  anchorsDroppedText,
   backupFileName,
   checkNewPassword,
   clockFromDate,
@@ -9,14 +10,15 @@ import {
   monthLabel,
   ok as okResult,
   purgeExpired,
-  readBackupFile,
   reasonText,
   replaceQuestion,
   retentionReport,
   sealBackup,
 } from '../logic/index.ts';
+import { readVerifiedBackup } from '../io/anchorCheck.ts';
 import { downloadFile, readFileText } from '../io/files.ts';
 import { useBookApi } from './bookContext.ts';
+import { useRunningPdf } from './runningPdfContext.ts';
 import { styles } from './styles.ts';
 
 const randomBytes = (length: number): Uint8Array => crypto.getRandomValues(new Uint8Array(length));
@@ -29,6 +31,7 @@ interface WaitingFile {
 
 export function BackupPage() {
   const { book, apply, showError } = useBookApi();
+  const runningPdf = useRunningPdf();
   const [info, setInfo] = useState<string | undefined>();
   const [encrypt, setEncrypt] = useState(true);
   const [password, setPassword] = useState('');
@@ -79,7 +82,7 @@ export function BackupPage() {
   const restoreFrom = async (name: string, text: string, pw?: string) => {
     setBusy(true);
     try {
-      const read = await readBackupFile(text, pw);
+      const read = await readVerifiedBackup(text, pw);
       if (!read.ok) {
         if (read.reason === 'password-required') return setWaiting({ name, text });
         if (read.reason === 'wrong-password') setWaiting({ name, text });
@@ -89,8 +92,12 @@ export function BackupPage() {
       }
       setWaiting(undefined);
       setRestorePassword('');
-      if (!confirm(replaceQuestion(book, read.value))) return;
-      if (apply(okResult(read.value))) setInfo('Die Sicherung wurde eingespielt.');
+      // anchors that do not verify are dropped (the times are kept): the person is told before and after
+      const dropped = read.dropped > 0 ? anchorsDroppedText(read.dropped, read.total) : '';
+      if (!confirm(`${replaceQuestion(book, read.value)}${dropped ? `\n\n${dropped}` : ''}`))
+        return;
+      if (apply(okResult(read.value)))
+        setInfo(`Die Sicherung wurde eingespielt.${dropped ? ` ${dropped}` : ''}`);
     } catch (error) {
       showError(
         `Die Datei konnte nicht gelesen werden: ${error instanceof Error ? error.message : String(error)}`,
@@ -120,10 +127,14 @@ export function BackupPage() {
     }
   };
 
-  const purge = () => {
+  const purge = async () => {
     const names = report.purgeable.map(monthLabel).join(', ');
     if (!confirm(`Diese exportierten Monate jetzt von diesem Gerät löschen: ${names}?`)) return;
-    if (apply(okResult(purgeExpired(book, today)))) setInfo('Die Monate wurden gelöscht.');
+    if (!apply(okResult(purgeExpired(book, today)))) return;
+    // running monthly PDFs of these months still in the app go with them
+    const refused = await runningPdf.forget(report.purgeable);
+    if (refused !== undefined) return showError(refused);
+    setInfo('Die Monate wurden gelöscht.');
   };
 
   return (
@@ -233,7 +244,7 @@ export function BackupPage() {
         {report.purgeable.length > 0 ? (
           <>
             <p>Fällig und exportiert: {report.purgeable.map(monthLabel).join(', ')}.</p>
-            <button type="button" style={styles.button} onClick={purge}>
+            <button type="button" style={styles.button} onClick={() => void purge()}>
               Fällige exportierte Monate löschen
             </button>
           </>

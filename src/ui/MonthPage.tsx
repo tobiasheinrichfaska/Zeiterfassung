@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import {
   LOG_NOTICE,
+  anchorCheckNote,
   anchorStatusText,
+  chainMismatchNote,
+  evidenceSerial,
   formatIsoDateTime,
   stampsOfMonth,
   changedDates,
@@ -12,6 +15,7 @@ import {
   formatDuration,
   formatIsoDate,
   markExported,
+  DEVICE_KEY_TEXTS,
   monthLabel,
   monthOf,
   monthSummary,
@@ -21,6 +25,9 @@ import {
   reasonText,
   removeWorkday,
   rowTexts,
+  runningPdfFileName,
+  runningPdfLines,
+  SAVE_TEXTS,
   shiftMonth,
   type WorkdayInput,
   willBeLogged,
@@ -30,13 +37,18 @@ import { useBookApi } from './bookContext.ts';
 import { DayForm } from './DayForm.tsx';
 import { useDrafts } from './draftContext.ts';
 import { useAnchoring } from './anchorContext.ts';
+import { ClockWarning } from './ClockWarning.tsx';
+import { useRunningPdf } from './runningPdfContext.ts';
 import { useAskReason } from './promptContext.ts';
 import { pdfAssets } from './pdfAssets.ts';
+import { useAnchorCheck } from './useAnchorCheck.ts';
 import { styles } from './styles.ts';
 
 export function MonthPage() {
-  const { book, getBook, apply, showError } = useBookApi();
+  const { book, getBook, apply, showError, chainMismatch } = useBookApi();
   const anchoring = useAnchoring();
+  const failedAnchors = useAnchorCheck(book.anchors);
+  const runningPdf = useRunningPdf();
   const askReason = useAskReason();
   const { drafts, setMonthDraft } = useDrafts();
   // a correction that was started before the page was left opens again where it was
@@ -54,6 +66,31 @@ export function MonthPage() {
   const monthChanges = changesOfMonth(book, month);
   const monthStamps = stampsOfMonth(book, month);
   const editingDay = editing === undefined ? undefined : book.days[editing];
+
+  const running = runningPdf.months[month];
+  const savedOut = runningPdf.saved.find((s) => s.month === month);
+
+  /** Saves or shares the running monthly PDF as it is stored (nothing is added on the way). */
+  const saveRunning = async (share: boolean) => {
+    const pdf = running ? runningPdf.file(running.slot) : undefined;
+    if (!pdf) return showError(SAVE_TEXTS.gone);
+    const name = runningPdfFileName(month);
+    try {
+      if (share) {
+        const file = new File([pdf as BlobPart], name, { type: 'application/pdf' });
+        if (await shareFile(file, `Arbeitszeit ${monthLabel(month)} (laufend)`)) {
+          setInfo('Die laufende Monatsdatei wurde weitergegeben.');
+        }
+      } else {
+        downloadFile(name, 'application/pdf', pdf);
+        setInfo(`Gespeichert als ${name} (Ordner „Downloads“).`);
+      }
+    } catch (error) {
+      showError(
+        `Die Datei konnte nicht weitergegeben werden: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
 
   const go = (delta: number) => {
     setMonth(shiftMonth(month, delta));
@@ -252,6 +289,22 @@ export function MonthPage() {
         <p data-state={anchoring.status.state} role="status">
           {anchorStatusText(anchoring.status)}
         </p>
+        <ClockWarning />
+        {chainMismatch.length > 0 && (
+          <p role="alert" data-chain-check="failed" style={{ ...styles.error, color: '#c62828' }}>
+            {chainMismatchNote(chainMismatch)}
+          </p>
+        )}
+        {failedAnchors > 0 && (
+          <p role="alert" data-anchor-check="failed" style={{ ...styles.error, color: '#c62828' }}>
+            {anchorCheckNote(failedAnchors)}
+          </p>
+        )}
+        {anchoring.needsKey && (
+          <p role="alert" data-device-key="missing">
+            {DEVICE_KEY_TEXTS.missing} Den Geräteschlüssel tragen Sie unter „Einstellungen“ ein.
+          </p>
+        )}
         <p>
           Die internen Stempel stammen von der Geräteuhr und belegen keine Zeit; nur die externen
           Zeitstempel belegen sie. Die App kann nur stempeln lassen, solange sie geöffnet und online
@@ -321,10 +374,12 @@ export function MonthPage() {
                 <tbody>
                   {book.anchors.map((a) => (
                     <tr key={a.coveredN}>
-                      <td style={styles.cell}>{a.tsaId}</td>
-                      <td style={styles.cell}>{formatIsoDateTime(a.genTime)}</td>
+                      <td style={styles.cell}>{a.evidence.service}</td>
+                      <td style={styles.cell}>{formatIsoDateTime(a.evidence.genTime)}</td>
                       <td style={styles.cell}>Nr. {a.coveredN}</td>
-                      <td style={{ ...styles.cell, wordBreak: 'break-all' }}>{a.serial}</td>
+                      <td style={{ ...styles.cell, wordBreak: 'break-all' }}>
+                        {evidenceSerial(a.evidence) ?? '–'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -332,6 +387,48 @@ export function MonthPage() {
             </div>
           )}
         </details>
+      </section>
+
+      <section style={styles.card} aria-label="Laufendes Monats-PDF">
+        <h3>Laufendes Monats-PDF</h3>
+        <ClockWarning />
+        <p>
+          Nach jedem „Gehen“ (oder beim nächsten Start) bekommt die Monatsdatei eine neue Seite mit
+          dem Stand bis zu diesem Tag und einen neuen Anhang; danach wird der neue Stand extern
+          gestempelt. Frühere Seiten werden nie geändert. Die App behält nur die Datei des laufenden
+          Monats und, bis zum 7. des Folgemonats, die des Vormonats; danach muss sie gespeichert
+          werden (zum Beispiel für die Personalakte).
+        </p>
+        {savedOut && !running && <p>{SAVE_TEXTS.savedOut(savedOut.at)}</p>}
+        <ul role="status">
+          {runningPdfLines(running).map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+        {running?.problem && (
+          <p role="alert" style={styles.error}>
+            {running.problem}
+          </p>
+        )}
+        {running && running.changedAttachments.length > 0 && (
+          <p role="alert" style={{ ...styles.error, color: '#c62828' }}>
+            Achtung: Frühere Anhänge der Datei wurden entfernt oder verändert:{' '}
+            {running.changedAttachments.join(', ')}. Die Datei ist so nicht mehr verlässlich.
+          </p>
+        )}
+        {runningPdf.busy && <p>Die laufende Monatsdatei wird fortgeschrieben …</p>}
+        {running && (
+          <div style={styles.row}>
+            <button type="button" style={styles.button} onClick={() => void saveRunning(false)}>
+              Laufendes PDF speichern
+            </button>
+            {canShare && (
+              <button type="button" style={styles.button} onClick={() => void saveRunning(true)}>
+                Laufendes PDF teilen …
+              </button>
+            )}
+          </div>
+        )}
       </section>
 
       <section style={styles.card}>

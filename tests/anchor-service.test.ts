@@ -1,26 +1,47 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { readTimestampResponse } from '../node_modules/zeitstempel/src/lib/index.ts';
+import { readTimestampResponse } from 'zeitstempel';
+import { CLIENT_LIMITS } from 'zeitstempel/client';
 import { trustedServices } from '../src/io/zeitstempel.ts';
 import {
   addAnchor,
   appendStamp,
-  bytesToBase64,
-  bytesToBase64Url,
+  readEvidence,
   hexToBytes,
   emptyBook,
   parseRelayList,
   relayOk,
   relayOrigin,
   relayUsable,
+  relayAudience,
+  audienceOk,
   stampIn,
   type AnchorOutcome,
   type TimeBook,
 } from '../src/logic/index.ts';
-import { createRelayService, requestAnchor, type AnchorService } from '../src/io/anchorService.ts';
-import { val } from './helpers.ts';
+import {
+  RELAY_TIMEOUT_MS,
+  createRelayService,
+  requestAnchor,
+  type AnchorService,
+  type RelayOptions,
+} from '../src/io/anchorService.ts';
+import { evidenceFor, val } from './helpers.ts';
+
+/** The device key of these tests (PKCS#8 bytes): a stand-in relay checks no signature. */
+const AUTH = {
+  keyId: 'geraet-1',
+  privateKey: new Uint8Array(
+    await crypto.subtle.exportKey(
+      'pkcs8',
+      (await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']))
+        .privateKey,
+    ),
+  ),
+};
 
 const RELAY = 'https://relay.example';
+const bytesToBase64Url = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64url');
 const iso = (day: number, h = 8, m = 0) =>
   `2026-11-${String(day).padStart(2, '0')}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00.000Z`;
 
@@ -77,6 +98,22 @@ const recorded = readTimestampResponse(
 if (!recorded.ok) throw new Error('fixture');
 const TOKEN = recorded.value.token;
 
+describe('the audience of a relay (build variable VITE_TIMESTAMP_AUDIENCE)', () => {
+  it('is the configured value when it is valid, else the relay origin', () => {
+    expect(relayAudience('https://relay.example/x', undefined)).toBe('https://relay.example');
+    expect(relayAudience('https://relay.example/x', '')).toBe('https://relay.example');
+    expect(relayAudience('http://localhost:8790', ' zeiterfassung-test ')).toBe(
+      'zeiterfassung-test',
+    );
+    expect(relayAudience('https://relay.example', 'mit leerzeichen')).toBe('https://relay.example');
+    expect(audienceOk('https://relay.example')).toBe(true);
+    for (const bad of ['', 'a b', 'ä', 'x'.repeat(129), 5, null]) {
+      expect(audienceOk(bad), String(bad)).toBe(false);
+    }
+    expect(audienceOk('x'.repeat(128))).toBe(true);
+  });
+});
+
 describe('the trust anchors shipped with the app', () => {
   it('cover every service the library lists, by the id the relay uses', () => {
     const trusted = trustedServices();
@@ -90,77 +127,103 @@ describe('the trust anchors shipped with the app', () => {
 });
 
 describe('the relay adapter', () => {
+  /** The recorded token was made at 2026-11-23T13:05:56Z: the adapter's wall clock stands just after it. */
+  const TOKEN_WALL = Date.parse('2026-11-23T13:06:00.000Z');
+  let mono = 1_000_000;
+  const relayService = (base: string, options: RelayOptions = {}) =>
+    createRelayService(base, AUTH, {
+      now: () => TOKEN_WALL,
+      monoNow: () => mono,
+      timeoutMs: 1000, // a 429 or 503 busy ends the call at once (the wait would pass the deadline)
+      ...options,
+    });
+
+  /** The serial inside the recorded token (the relay sends the same). */
+  const realSerial = recorded.value.info.serial;
   const answer = (over: Record<string, unknown> = {}) => ({
     service: 'freetsa',
     genTime: '2026-11-23T13:05:56.000Z',
     accuracyMs: null,
-    serial: '',
+    serial: realSerial,
     token: bytesToBase64Url(TOKEN),
     ...over,
   });
-  /** The serial inside the recorded token (the relay would send the same). */
-  const realSerial = (() => {
-    const t = readTimestampResponse(
-      new Uint8Array(readFileSync(new URL('./fixtures/freetsa.tsr', import.meta.url))),
-    );
-    return t.ok ? t.value.info.serial : '';
-  })();
   const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
     new Response(JSON.stringify(body), { status, headers });
-  const services = (...ids: string[]) => json(200, { services: ids.map((id) => ({ id })) });
+  const body = (init: RequestInit) => JSON.parse(new TextDecoder().decode(init.body as Uint8Array));
 
   interface Seen {
     url: string;
     init: RequestInit;
   }
-  /** A relay stand-in: the services list and the answer(s) to the stamp calls, in order. */
-  function relay(list: Response, ...stamps: Response[]) {
+  /** A relay stand-in: the answers to the stamp calls, in order. */
+  function relay(...stamps: (Response | Error)[]) {
     const seen: Seen[] = [];
     const fn: typeof fetch = async (url, init) => {
       seen.push({ url: String(url), init: init ?? {} });
-      if (String(url).endsWith('/v1/services')) return list.clone();
       const next = stamps.shift();
       if (!next) throw new Error('unexpected call ' + String(url));
+      if (next instanceof Error) throw next;
       return next;
     };
     return { fn, seen };
   }
 
-  it('asks for the services, then posts only the hash, without cookies, referrer or redirects, and verifies', async () => {
-    const r = relay(services('freetsa'), json(200, answer({ serial: realSerial })));
-    const out = await createRelayService(RELAY + '/', { fetch: r.fn }).anchor(PROBE_HASH);
-    expect(out.ok && out.value).toMatchObject({ tsaId: 'freetsa', serial: realSerial });
-    expect(out.ok && out.value.genTime).toMatch(/^\d{4}-\d\d-\d\dT/);
-    expect(out.ok && [...out.value.token]).toEqual([...TOKEN]);
-    expect(r.seen.map((s) => s.url)).toEqual([
-      'https://relay.example/v1/services',
-      'https://relay.example/v1/stamp/freetsa',
-    ]);
-    for (const s of r.seen) {
-      expect(s.init).toMatchObject({
-        credentials: 'omit',
-        referrerPolicy: 'no-referrer',
-        cache: 'no-store',
-        redirect: 'error',
-      });
-    }
-    expect(r.seen[0]!.init.method).toBe('GET');
-    expect(r.seen[1]!.init.method).toBe('POST');
-    expect(r.seen[1]!.init.headers).toEqual({ 'Content-Type': 'application/json' });
-    // only the hash leaves: 32 bytes as Base64url without padding
-    expect(JSON.parse(String(r.seen[1]!.init.body))).toEqual({
+  it('posts only the hash (solo), signed, without cookies or redirects, and returns the verified evidence', async () => {
+    const r = relay(json(200, answer()));
+    const out = await relayService(RELAY + '/', { fetch: r.fn }).anchor(PROBE_HASH);
+    if (!out.ok) throw new Error(out.detail);
+    const e = out.value.evidence;
+    expect(e).toMatchObject({
+      v: 1,
+      kind: 'single',
+      service: 'freetsa',
       hash: bytesToBase64Url(hexToBytes(PROBE_HASH)!),
+      hashAlg: 'sha256',
+      genTime: '2026-11-23T13:05:56.000Z',
+      receivedAtMs: TOKEN_WALL,
     });
-    expect(String(r.seen[1]!.init.body)).not.toMatch(/=/);
+    expect(Buffer.from(e.token, 'base64url')).toEqual(Buffer.from(TOKEN));
+    expect(val(readEvidence(e))).toEqual(e);
+    // the first service of services.json the app has anchors for
+    expect(r.seen.map((s) => s.url)).toEqual(['https://relay.example/v1/stamp/freetsa']);
+    expect(r.seen[0]!.init).toMatchObject({
+      method: 'POST',
+      credentials: 'omit',
+      cache: 'no-store',
+      redirect: 'error',
+    });
+    expect(Object.keys(r.seen[0]!.init.headers as object).sort()).toEqual([
+      'Content-Type',
+      'X-Zeitstempel-Auth',
+    ]);
+    expect(body(r.seen[0]!.init)).toEqual({
+      hash: bytesToBase64Url(hexToBytes(PROBE_HASH)!),
+      mode: 'solo',
+    });
   });
 
-  it('takes the time and serial from the verified token, not from the relay', async () => {
-    const r = relay(
-      services('freetsa'),
-      json(200, answer({ serial: realSerial, genTime: '2030-01-01T00:00:00.000Z' })),
+  it('reports the relay clock offset when the relay Date differs by more than 30 s', async () => {
+    const offsets: number[] = [];
+    const later = new Date(TOKEN_WALL + 50_000).toUTCString();
+    const r = relay(json(200, answer(), { Date: later }));
+    await relayService(RELAY, { fetch: r.fn, onClockOffset: (o) => offsets.push(o) }).anchor(
+      PROBE_HASH,
     );
-    const out = await createRelayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH);
-    expect(out.ok && out.value.genTime).not.toContain('2030');
+    expect(offsets).toEqual([50_000]);
+    const same = new Date(TOKEN_WALL + 10_000).toUTCString();
+    const none: number[] = [];
+    await relayService(RELAY, {
+      fetch: relay(json(200, answer(), { Date: same })).fn,
+      onClockOffset: (o) => none.push(o),
+    }).anchor(PROBE_HASH);
+    expect(none).toEqual([]);
+  });
+
+  it('takes the time from the verified token, not from the relay', async () => {
+    const r = relay(json(200, answer({ genTime: '2030-01-01T00:00:00.000Z' })));
+    const out = await relayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH);
+    expect(out.ok && out.value.evidence.genTime).toBe('2026-11-23T13:05:56.000Z');
   });
 
   it('refuses a token for another hash, a changed token, a wrong anchor, a serial that differs', async () => {
@@ -169,10 +232,8 @@ describe('the relay adapter', () => {
       over: Record<string, unknown>,
       trusted?: Map<string, { anchors: string[] }>,
     ) => {
-      const r = relay(services('freetsa'), json(200, answer({ serial: realSerial, ...over })));
-      return createRelayService(RELAY, { fetch: r.fn, ...(trusted ? { trusted } : {}) }).anchor(
-        hash,
-      );
+      const r = relay(json(200, answer(over)));
+      return relayService(RELAY, { fetch: r.fn, ...(trusted ? { trusted } : {}) }).anchor(hash);
     };
     // the token was made for „probe“, the app stamped something else
     expect(await run('ab'.repeat(32), {})).toMatchObject({
@@ -200,176 +261,199 @@ describe('the relay adapter', () => {
       detail: 'die Zertifikatskette endet bei keinem bekannten Anker',
     });
     // the relay names another serial than the token carries
-    expect(await run(PROBE_HASH, { serial: 'ff' })).toMatchObject({
+    expect(await run(PROBE_HASH, { serial: 'ff' })).toEqual({
       ok: false,
       reason: 'bad-response',
+      detail: 'Seriennummer weicht vom Token ab',
     });
-    // the relay answers for another service than asked
-    expect(await run(PROBE_HASH, { service: 'sectigo' })).toMatchObject({
-      ok: false,
-      reason: 'bad-response',
-    });
+    // the relay answers for another service than asked, or with an extra field
+    for (const over of [{ service: 'sectigo' }, { extra: 1 }]) {
+      expect(await run(PROBE_HASH, over), JSON.stringify(over)).toMatchObject({
+        ok: false,
+        reason: 'bad-response',
+      });
+    }
+    // a collected receipt where a direct stamp was asked for
+    expect(
+      await run(PROBE_HASH, { batch: { v: 1, size: 2, index: 0, salt: 'A'.repeat(43), path: [] } }),
+    ).toEqual({ ok: false, reason: 'bad-response', detail: 'Sammelbeleg statt Einzelstempel' });
   });
 
-  it('ignores services of the relay it has no anchors for, and says so when none is left', async () => {
-    const r = relay(services('unknown', 'freetsa'), json(200, answer({ serial: realSerial })));
-    const out = await createRelayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH);
-    expect(out.ok).toBe(true);
-    expect(r.seen[1]!.url).toBe('https://relay.example/v1/stamp/freetsa');
-    expect(
-      await createRelayService(RELAY, { fetch: relay(services('unknown')).fn }).anchor(PROBE_HASH),
-    ).toMatchObject({
+  it('leaves out a service the relay does not offer or the key may not use, and asks the next', async () => {
+    const t = trustedServices();
+    // the third service carries FreeTSA's root here, so the recorded token verifies under its id
+    const trusted = new Map([
+      ['sectigo', t.get('sectigo')!],
+      ['certum', t.get('certum')!],
+      ['digicert', t.get('freetsa')!],
+    ]);
+    const r = relay(
+      json(404, { error: 'unknown-service' }),
+      json(403, { error: 'service-not-allowed' }),
+      json(200, answer({ service: 'digicert' })),
+      json(200, answer({ service: 'digicert' })),
+    );
+    const service = relayService(RELAY, { fetch: r.fn, trusted });
+    const out = await service.anchor(PROBE_HASH);
+    expect(out.ok && out.value.evidence.service).toBe('digicert');
+    expect((await service.anchor(PROBE_HASH)).ok).toBe(true);
+    expect(r.seen.map((s) => s.url.split('/').pop())).toEqual([
+      'sectigo',
+      'certum',
+      'digicert',
+      'digicert', // the next stamp goes to the service that is there
+    ]);
+    const none = relay(
+      ...['freetsa', 'sectigo', 'digicert', 'certum'].map(() =>
+        json(404, { error: 'unknown-service' }),
+      ),
+    );
+    expect(await relayService(RELAY, { fetch: none.fn }).anchor(PROBE_HASH)).toEqual({
       ok: false,
       reason: 'refused',
+      detail: 'kein Dienst des Weiterreichers ist der App bekannt',
     });
+    expect(none.seen).toHaveLength(4);
   });
 
-  it('tries the next service on 502 and 504 (at most three), and reports the last when all fail', async () => {
+  it('says so when the app knows no service at all', async () => {
+    expect(
+      await relayService(RELAY, { fetch: relay().fn, trusted: new Map() }).anchor(PROBE_HASH),
+    ).toMatchObject({ ok: false, reason: 'refused' });
+  });
+
+  it('tries the next service on 502, 504 and network errors, and reports the last when all fail', async () => {
     const r = relay(
-      services('digicert', 'certum', 'sectigo', 'freetsa'),
       json(502, { error: 'upstream-failed' }),
       json(504, { error: 'upstream-timeout' }),
+      new TypeError('Failed to fetch'),
       json(502, { error: 'upstream-invalid', reason: 'x' }),
     );
-    const out = await createRelayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH);
+    const out = await relayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH);
     expect(out).toEqual({
       ok: false,
       reason: 'unreachable',
       detail: 'Status 502, upstream-invalid',
     });
-    expect(r.seen.filter((s) => s.init.method === 'POST')).toHaveLength(3);
+    expect(r.seen).toHaveLength(4);
+    // the token of the recorded fixture is FreeTSA's, and trust is per service: FreeTSA comes second here
+    const all = trustedServices();
     const ok = relay(
-      services('digicert', 'freetsa'),
       json(504, { error: 'upstream-timeout' }),
-      json(200, answer({ serial: realSerial })),
+      json(200, answer({ service: 'freetsa' })),
     );
-    expect((await createRelayService(RELAY, { fetch: ok.fn }).anchor(PROBE_HASH)).ok).toBe(true);
-  });
-
-  it('pauses after 429 until Retry-After has passed, without asking the relay meanwhile', async () => {
-    let now = 1_000_000;
-    const r = relay(
-      services('freetsa'),
-      json(429, { error: 'rate-limited' }, { 'Retry-After': '30' }),
-      json(200, answer({ serial: realSerial })),
-    );
-    const service = createRelayService(RELAY, { fetch: r.fn, now: () => now });
-    expect(await service.anchor(PROBE_HASH)).toEqual({
-      ok: false,
-      reason: 'rate-limited',
-      detail: 'bitte in 30 s erneut versuchen',
-    });
-    const calls = r.seen.length;
-    now += 10_000;
-    expect(await service.anchor(PROBE_HASH)).toEqual({
-      ok: false,
-      reason: 'rate-limited',
-      detail: 'bitte in 20 s erneut versuchen',
-    });
-    expect(r.seen.length).toBe(calls); // nothing was sent during the pause
-    now += 20_000;
-    expect((await service.anchor(PROBE_HASH)).ok).toBe(true);
-  });
-
-  it('does not stretch the pause when the clock goes back (a pause is never longer than an hour)', async () => {
-    let now = 5_000_000;
-    const r = relay(
-      services('freetsa'),
-      json(429, {}, { 'Retry-After': '30' }),
-      json(200, answer({ serial: realSerial })),
-    );
-    const service = createRelayService(RELAY, { fetch: r.fn, now: () => now });
-    expect((await service.anchor(PROBE_HASH)).ok).toBe(false);
-    now -= 3 * 3_600_000; // the device clock is set back by three hours
-    const again = await service.anchor(PROBE_HASH);
-    expect(again, JSON.stringify(again)).toMatchObject({ ok: true });
-  });
-
-  it('takes a missing or silly Retry-After as 60 seconds and never more than an hour', async () => {
-    for (const [header, expected] of [
-      [undefined, 60],
-      ['soon', 60],
-      ['0', 60],
-      ['99999', 3600],
-    ] as const) {
-      const r = relay(services('freetsa'), json(429, {}, header ? { 'Retry-After': header } : {}));
-      const out = await createRelayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH);
-      expect(out, String(header)).toMatchObject({
-        reason: 'rate-limited',
-        detail: `bitte in ${expected} s erneut versuchen`,
-      });
-    }
-  });
-
-  it('says refused for other error statuses (with the relay’s code), also for the list', async () => {
-    const stamp = relay(services('freetsa'), json(400, { error: 'bad-hash' }));
-    expect(await createRelayService(RELAY, { fetch: stamp.fn }).anchor(PROBE_HASH)).toEqual({
-      ok: false,
-      reason: 'refused',
-      detail: 'Status 400, bad-hash',
-    });
+    const sectigoFirst = new Map([
+      ['sectigo', { anchors: all.get('sectigo')!.anchors }],
+      ['freetsa', { anchors: all.get('freetsa')!.anchors }],
+    ]);
     expect(
-      await createRelayService(RELAY, { fetch: relay(json(404, 'x')).fn }).anchor(PROBE_HASH),
-    ).toMatchObject({ reason: 'refused', detail: 'Status 404' });
-  });
-
-  it('says bad response for text that is no JSON and for answers that do not fit', async () => {
-    const notJson = relay(services('freetsa'), new Response('kein json', { status: 200 }));
-    expect(await createRelayService(RELAY, { fetch: notJson.fn }).anchor(PROBE_HASH)).toMatchObject(
-      {
-        reason: 'bad-response',
-      },
-    );
-    const extra = relay(services('freetsa'), json(200, answer({ extra: 1, serial: realSerial })));
-    expect(await createRelayService(RELAY, { fetch: extra.fn }).anchor(PROBE_HASH)).toMatchObject({
-      reason: 'bad-response',
-    });
-    expect(
-      await createRelayService(RELAY, { fetch: relay(json(200, { services: 'x' })).fn }).anchor(
-        PROBE_HASH,
-      ),
-    ).toMatchObject({ reason: 'bad-response' });
-    expect(
-      await createRelayService(RELAY, { fetch: relay(services('freetsa')).fn }).anchor('nope'),
-    ).toMatchObject({
-      reason: 'bad-response',
-    });
-  });
-
-  it('says unreachable when the network fails, with the reason', async () => {
-    const service = createRelayService(RELAY, {
+      (await relayService(RELAY, { fetch: ok.fn, trusted: sectigoFirst }).anchor(PROBE_HASH)).ok,
+    ).toBe(true);
+    expect(ok.seen.map((s) => s.url)).toEqual([
+      `${RELAY}/v1/stamp/sectigo`,
+      `${RELAY}/v1/stamp/freetsa`,
+    ]);
+    const down = relayService(RELAY, {
       fetch: async () => {
         throw new TypeError('Failed to fetch');
       },
     });
-    expect(await service.anchor(PROBE_HASH)).toEqual({
+    expect(await down.anchor(PROBE_HASH)).toEqual({
       ok: false,
       reason: 'unreachable',
-      detail: 'Failed to fetch',
+      detail: 'keine Antwort',
     });
   });
 
-  it('gives up after the time limit (default longer than the relay’s own 10 seconds)', async () => {
+  it('pauses after 429 (and 503 busy) until Retry-After has passed, without asking the relay meanwhile', async () => {
+    for (const refusal of [
+      json(429, { error: 'rate-limited' }, { 'Retry-After': '30' }),
+      json(503, { error: 'busy' }, { 'Retry-After': '30' }),
+    ]) {
+      const r = relay(refusal, json(200, answer()));
+      const service = relayService(RELAY, { fetch: r.fn });
+      expect(await service.anchor(PROBE_HASH)).toEqual({
+        ok: false,
+        reason: 'rate-limited',
+        detail: 'bitte in 30 s erneut versuchen',
+      });
+      mono += 10_000;
+      expect(await service.anchor(PROBE_HASH)).toEqual({
+        ok: false,
+        reason: 'rate-limited',
+        detail: 'bitte in 20 s erneut versuchen',
+      });
+      expect(r.seen).toHaveLength(1); // nothing was sent during the pause
+      mono += 20_000;
+      expect((await service.anchor(PROBE_HASH)).ok).toBe(true);
+    }
+  });
+
+  it('measures the pause on the monotonic clock: a wall clock set back does not stretch it', async () => {
+    let wall = TOKEN_WALL;
+    const r = relay(json(429, {}, { 'Retry-After': '30' }), json(200, answer()));
+    const service = relayService(RELAY, { fetch: r.fn, now: () => wall });
+    expect((await service.anchor(PROBE_HASH)).ok).toBe(false);
+    wall -= 3 * 3_600_000; // the device clock is set back by three hours …
+    mono += 30_000; // … while 30 s pass
+    wall = TOKEN_WALL; // (the token needs a wall clock near its time)
+    expect((await service.anchor(PROBE_HASH)).ok).toBe(true);
+  });
+
+  it('takes a missing Retry-After as one second (the client’s rule)', async () => {
+    const r = relay(json(429, {}));
+    expect(await relayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH)).toMatchObject({
+      reason: 'rate-limited',
+      detail: 'bitte in 1 s erneut versuchen',
+    });
+    mono += 1000;
+  });
+
+  it('says refused for other error statuses, with the relay’s code, and asks no other service', async () => {
+    const stamp = relay(json(400, { error: 'bad-hash' }));
+    expect(await relayService(RELAY, { fetch: stamp.fn }).anchor(PROBE_HASH)).toEqual({
+      ok: false,
+      reason: 'refused',
+      detail: 'Status 400, bad-hash',
+    });
+    expect(stamp.seen).toHaveLength(1);
+    const notFound = relay(json(404, { error: 'not-found' }));
+    expect(await relayService(RELAY, { fetch: notFound.fn }).anchor(PROBE_HASH)).toEqual({
+      ok: false,
+      reason: 'refused',
+      detail: 'Status 404, not-found',
+    });
+  });
+
+  it('says bad response for text that is no JSON, and for a hash that is no hash', async () => {
+    const notJson = relay(new Response('kein json', { status: 200 }));
+    expect(await relayService(RELAY, { fetch: notJson.fn }).anchor(PROBE_HASH)).toEqual({
+      ok: false,
+      reason: 'bad-response',
+      detail: 'kein JSON',
+    });
+    expect(await relayService(RELAY, { fetch: relay().fn }).anchor('nope')).toMatchObject({
+      reason: 'bad-response',
+    });
+  });
+
+  it('gives up after the time limit, and its default is the client’s', async () => {
     const hang = (_url: RequestInfo | URL, init?: RequestInit) =>
       new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () =>
           reject(new DOMException('abort', 'AbortError')),
         );
       });
-    const r = await createRelayService(RELAY, { fetch: hang, timeoutMs: 20 }).anchor(PROBE_HASH);
+    const r = await relayService(RELAY, { fetch: hang, timeoutMs: 1000 }).anchor(PROBE_HASH);
     expect(r).toEqual({ ok: false, reason: 'unreachable', detail: 'Zeitüberschreitung' });
-    const source = readFileSync(new URL('../src/io/anchorService.ts', import.meta.url), 'utf8');
-    expect(Number(/timeoutMs \?\? ([\d_]+)/.exec(source)?.[1]?.replace(/_/g, ''))).toBeGreaterThan(
-      12_000,
-    );
+    expect(RELAY_TIMEOUT_MS).toBe(CLIENT_LIMITS.DEFAULT_TIMEOUT_MS);
   });
 });
 
 describe('one round with the service', () => {
-  const ok: AnchorOutcome = {
-    ok: true,
-    value: { tsaId: 'tsa', token: Uint8Array.from([7, 7]), genTime: iso(20, 8, 1), serial: '0a' },
-  };
+  const evidence = (b: TimeBook) => evidenceFor(b.stamps[0]!.hash, { genTime: iso(20, 8, 1) });
+  const okFor = (b: TimeBook): AnchorOutcome => ({ ok: true, value: { evidence: evidence(b) } });
+  const ok = okFor(book());
   const fixed = (outcome: AnchorOutcome): AnchorService => ({ anchor: async () => outcome });
 
   it('is off without a relay in the settings or without a service', async () => {
@@ -382,14 +466,7 @@ describe('one round with the service', () => {
     const covered = val(
       addAnchor(
         b,
-        {
-          tsaId: 't',
-          genTime: iso(20, 8, 1),
-          serial: '0a',
-          coveredN: 1,
-          headHash: b.stamps[0]!.hash,
-          token: 'AAAA',
-        },
+        { coveredN: 1, headHash: b.stamps[0]!.hash, evidence: evidence(b) },
         iso(20, 8, 2),
       ),
     );
@@ -402,12 +479,9 @@ describe('one round with the service', () => {
     const round = await requestAnchor(b, { anchor: async (h) => ((sent = h), ok) });
     expect(sent).toBe(b.stamps[0]!.hash);
     expect(round.kind === 'anchor' && round.anchor).toEqual({
-      tsaId: 'tsa',
-      genTime: iso(20, 8, 1),
-      serial: '0a',
       coveredN: 1,
       headHash: b.stamps[0]!.hash,
-      token: bytesToBase64(Uint8Array.from([7, 7])),
+      evidence: evidence(b),
     });
   });
 

@@ -9,6 +9,13 @@ export interface BookApi {
   apply(result: Result<TimeBook>): boolean;
   /** A message to show (a refusal or a storage error) until it is dismissed. */
   error: string | undefined;
+  /**
+   * A storage failure after the fact (the vault's background write): shown as a standing red banner that
+   * cannot be dismissed, until a later write of the book is stored.
+   */
+  unsaved: string | undefined;
+  /** Days whose stored state did not match the stamp chain when the book was loaded (`checkDaysAgainstChain`). */
+  chainMismatch: readonly string[];
   showError(text: string): void;
   dismissError(): void;
 }

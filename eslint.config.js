@@ -17,7 +17,7 @@ export default defineConfig([
     'test-results',
     'e2e',
     // Base library in a subdirectory with its own toolchain (to be extracted, see its HERAUSLOESEN.md).
-    'pdf-fortschreiben',
+    'einzeldatei-csp',
   ]),
   {
     files: ['**/*.{ts,tsx}'],

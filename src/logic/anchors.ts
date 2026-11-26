@@ -1,7 +1,18 @@
-import { LIMITS, fail, ok, type Anchor, type Result, type TimeBook } from './model.ts';
-import { chainHead } from './stamps.ts';
+import {
+  LIMITS,
+  fail,
+  ok,
+  type Anchor,
+  type MonthKey,
+  type Result,
+  type Stamp,
+  type TimeBook,
+} from './model.ts';
+import { chainHead, stampsOfMonth } from './stamps.ts';
+import { exportCovers } from './retention.ts';
+import { monthIndex, monthOf } from './time.ts';
 import { isHash } from './sha256.ts';
-import { textOk } from './validate.ts';
+import { evidenceToken, hexToBase64Url, readEvidence, type Evidence } from './evidence.ts';
 
 /**
  * Where the stamp chain stands against the external time stamping service:
@@ -39,7 +50,7 @@ export function anchorStatus(book: TimeBook, nowIso: string): AnchorStatus {
   const base = {
     unanchored: open.length,
     oldestUnanchoredAt: oldest,
-    lastAnchorGenTime: book.anchors.at(-1)?.genTime ?? null,
+    lastAnchorGenTime: book.anchors.at(-1)?.evidence.genTime ?? null,
     coveredN: covered,
     headN: head?.n ?? 0,
   };
@@ -65,58 +76,121 @@ export function anchorRequest(book: TimeBook): AnchorRequest | undefined {
 }
 
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
-const BASE64URL = /^[A-Za-z0-9_-]+$/;
-const SERIAL = /^[0-9a-f]+$/;
-const SERVICE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 
 /**
- * Takes an anchor into the book after checking it strictly: it must cover a stamp that exists and
- * is newer than what is covered, its hash must be that stamp's hash, it carries the serial number of the
- * token (lower-case hex), the token must be Base64 within the
- * size limit, and the time of the token must fit the device clock within the tolerance (not long before
- * the stamp it covers, not in the future). A refused anchor changes nothing.
+ * The evidence of an anchor, read strictly (`readEvidence` of `zeitstempel/client`, a fresh copy), with the
+ * app's own rules on top: its hash is exactly `headHash`, its token is readable and within the size limit.
+ * Null when anything fails. Shared by `addAnchor` and the backup reader.
+ */
+export function checkedEvidence(evidence: unknown, headHash: unknown): Evidence | null {
+  if (typeof headHash !== 'string') return null;
+  const read = readEvidence(evidence);
+  if (!read.ok) return null;
+  const e = read.value;
+  if (e.hash !== hexToBase64Url(headHash)) return null;
+  if (e.token.length > LIMITS.maxAnchorTokenChars || evidenceToken(e) === null) return null;
+  return e;
+}
+
+/**
+ * Takes an anchor into the book after checking it strictly: it must cover a stamp that exists and is newer
+ * than what is covered, its evidence must pass `checkedEvidence` (strict form, the hash is that stamp's
+ * hash, token within the size limit), and the time of the token must fit the device clock within the
+ * tolerance (not long before the stamp it covers, not in the future). A refused anchor changes nothing.
+ * After adding, the anchors are thinned (`thinAnchors`); the new one, the newest, always stays.
  */
 export function addAnchor(book: TimeBook, anchor: Anchor, nowIso: string): Result<TimeBook> {
   if (book.anchors.length >= LIMITS.maxAnchors) return fail('too-many-anchors');
-  if (
-    !textOk(anchor.tsaId, LIMITS.maxTsaIdChars) ||
-    anchor.tsaId === '' ||
-    typeof anchor.genTime !== 'string' ||
-    Number.isNaN(Date.parse(anchor.genTime)) ||
-    !Number.isInteger(anchor.coveredN) ||
-    !isHash(anchor.headHash) ||
-    typeof anchor.serial !== 'string' ||
-    !SERIAL.test(anchor.serial) ||
-    anchor.serial.length > LIMITS.maxSerialChars ||
-    typeof anchor.token !== 'string' ||
-    anchor.token.length === 0 ||
-    anchor.token.length > LIMITS.maxAnchorTokenChars ||
-    anchor.token.length % 4 !== 0 ||
-    !BASE64.test(anchor.token)
-  ) {
-    return fail('bad-anchor');
-  }
+  if (!Number.isInteger(anchor.coveredN) || !isHash(anchor.headHash)) return fail('bad-anchor');
+  const evidence = checkedEvidence(anchor.evidence, anchor.headHash);
+  if (!evidence) return fail('bad-anchor');
   if (anchor.coveredN <= coveredUpTo(book)) return fail('bad-anchor');
   const covered = book.stamps.find((s) => s.n === anchor.coveredN);
   if (!covered || covered.hash !== anchor.headHash) return fail('bad-anchor');
   const tolerance = LIMITS.anchorSkewMinutes * 60_000;
-  const gen = Date.parse(anchor.genTime);
+  const gen = Date.parse(evidence.genTime);
   if (gen < Date.parse(covered.at) - tolerance || gen > Date.parse(nowIso) + tolerance) {
     return fail('anchor-skew');
   }
-  return ok({ ...book, anchors: [...book.anchors, { ...anchor }] });
+  const added = {
+    ...book,
+    anchors: [...book.anchors, { coveredN: anchor.coveredN, headHash: anchor.headHash, evidence }],
+  };
+  // older anchors that nothing needs any more go (`thinAnchors`): the book stays small
+  return ok({ ...added, anchors: thinAnchors(added, nowIso) });
+}
+
+/**
+ * The anchors a month's report shows: for every given stamp the **first** anchor that covers it (the
+ * oldest with `coveredN >= n`; a later anchor covers the whole chain up to its own stamp, so this is the
+ * earliest proof for that stamp), plus the newest anchor **before** the first of the stamps (it shows the
+ * state of the chain before the month). Each anchor once, in the book's order (rising `coveredN`). No
+ * stamps: no anchors.
+ */
+export function anchorsForStamps(anchors: readonly Anchor[], stamps: readonly Stamp[]): Anchor[] {
+  if (stamps.length === 0) return [];
+  const pick = new Set<number>();
+  const first = Math.min(...stamps.map((s) => s.n));
+  let before = -1;
+  for (const [i, a] of anchors.entries()) if (a.coveredN < first) before = i;
+  if (before >= 0) pick.add(before);
+  for (const s of stamps) {
+    const i = anchors.findIndex((a) => a.coveredN >= s.n);
+    if (i >= 0) pick.add(i);
+  }
+  return anchors.filter((_, i) => pick.has(i));
+}
+
+const monthAt = (index: number): MonthKey =>
+  `${String(Math.floor(index / 12)).padStart(4, '0')}-${String((index % 12) + 1).padStart(2, '0')}`;
+
+/**
+ * Which anchors the book keeps (applied by `addAnchor`). A later anchor covers the whole chain up to its own
+ * stamp, so older ones only add how **early** a stamp existed. Kept are:
+ * 1. per calendar day of the token's time (UTC date of `genTime`) only the **newest** anchor of that day;
+ * 2. of those, only the ones a month still needs to show (`anchorsForStamps` over that month's stamps), for
+ *    the months with stamps that are the current or the previous month (UTC month of `nowIso`) or that an
+ *    export does not cover (never exported, or changed after the export): an exported month's anchors are
+ *    in its exported PDF;
+ * 3. always the newest anchor of all (it holds `coveredUpTo`, so the status never changes).
+ * Order is kept; nothing is added.
+ */
+export function thinAnchors(book: TimeBook, nowIso: string): Anchor[] {
+  const anchors = book.anchors;
+  if (anchors.length <= 1) return anchors;
+  const lastOfDay = new Map<string, number>();
+  for (const [i, a] of anchors.entries()) lastOfDay.set(a.evidence.genTime.slice(0, 10), i);
+  const newestOfDay = new Set(lastOfDay.values());
+  const daily = anchors.filter((_, i) => newestOfDay.has(i));
+  const now = monthIndex(monthOf(nowIso.slice(0, 10)));
+  const recent = new Set([monthAt(now), monthAt(now - 1)]);
+  const months = new Set(book.stamps.map((s) => monthOf(s.date)));
+  const keep = new Set<Anchor>([anchors[anchors.length - 1] as Anchor]);
+  for (const month of months) {
+    if (!recent.has(month) && exportCovers(book, month)) continue;
+    for (const a of anchorsForStamps(daily, stampsOfMonth(book, month))) keep.add(a);
+  }
+  return anchors.filter((a) => keep.has(a));
 }
 
 /** The answer of the stamping service for a hash (or why there is none). */
 export type AnchorFailure =
-  'not-configured' | 'unreachable' | 'refused' | 'rate-limited' | 'bad-response' | 'not-verified';
+  | 'not-configured'
+  | 'unreachable'
+  | 'refused'
+  | 'rate-limited'
+  | 'bad-response'
+  | 'not-verified'
+  | 'unauthorized'
+  /** The app's own time stamp setup is wrong (trust anchors, services, client options), not the token. */
+  | 'misconfigured';
 
-/** What a verified answer gives: the time and serial are those of the checked token, not the relay's. */
+/**
+ * What a verified answer gives: the evidence of `zeitstempel/client` (its time is that of the checked
+ * token, not the relay's claim).
+ */
 export interface AnchorValue {
-  tsaId: string;
-  token: Uint8Array;
-  genTime: string;
-  serial: string;
+  evidence: Evidence;
 }
 
 export type AnchorOutcome =
@@ -129,6 +203,8 @@ export const ANCHOR_FAILURE_TEXTS: Record<AnchorFailure, string> = {
   'rate-limited': 'Der Zeitstempeldienst nimmt vorerst keine weitere Anfrage an.',
   'bad-response': 'Die Antwort des Zeitstempeldienstes ist ungültig.',
   'not-verified': 'Das Token des Zeitstempeldienstes hat die Prüfung nicht bestanden.',
+  unauthorized: 'Geräteschlüssel wird vom Zeitstempeldienst nicht angenommen.',
+  misconfigured: 'Die Zeitstempel-Einrichtung dieses Builds ist fehlerhaft.',
 };
 
 /** Standard Base64 with padding. */
@@ -140,14 +216,7 @@ export function bytesToBase64(bytes: Uint8Array): string {
 
 /** The anchor to add for a service's answer. */
 export function anchorFromOutcome(request: AnchorRequest, value: AnchorValue): Anchor {
-  return {
-    tsaId: value.tsaId,
-    genTime: value.genTime,
-    serial: value.serial,
-    coveredN: request.coveredN,
-    headHash: request.hash,
-    token: bytesToBase64(value.token),
-  };
+  return { coveredN: request.coveredN, headHash: request.hash, evidence: value.evidence };
 }
 
 /** Standard Base64 → bytes, or null when it is not valid Base64. */
@@ -160,70 +229,8 @@ export function base64ToBytes(text: string): Uint8Array | null {
   }
 }
 
-/** Base64url without padding → bytes (what the relay sends and takes), or null when it is not that. */
-export function base64UrlToBytes(text: string): Uint8Array | null {
-  if (text.length === 0 || !BASE64URL.test(text) || text.length % 4 === 1) return null;
-  const padded =
-    text.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (text.length % 4)) % 4);
-  try {
-    return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  } catch {
-    return null;
-  }
-}
-
-/** Bytes → Base64url without padding. */
-export const bytesToBase64Url = (bytes: Uint8Array): string =>
-  bytesToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-
 /** A hash of 64 hex digits → its 32 bytes, or null. */
 export function hexToBytes(hex: string): Uint8Array | null {
   if (!isHash(hex)) return null;
   return Uint8Array.from(hex.match(/../g) ?? [], (h) => parseInt(h, 16));
-}
-
-/**
- * Reads the relay's answer to `POST /v1/stamp/<id>` strictly: exactly `service`, `genTime`, `accuracyMs`
- * (whole number or null), `serial` (lower-case hex) and `token` (Base64url of the DER token, within the
- * size limit). Anything else is a bad response, never a guess. The values are **not trusted yet**: the
- * token has to be verified against the hash and the shipped trust anchors (`genTime` here is for display
- * only; the verified token's time counts).
- */
-export function parseRelayAnswer(value: unknown): AnchorOutcome {
-  const bad = (detail: string): AnchorOutcome => ({ ok: false, reason: 'bad-response', detail });
-  if (typeof value !== 'object' || value === null || Array.isArray(value))
-    return bad('kein Objekt');
-  const o = value as Record<string, unknown>;
-  const keys = Object.keys(o).sort().join(',');
-  if (keys !== 'accuracyMs,genTime,serial,service,token') return bad('unerwartete Felder');
-  if (typeof o.service !== 'string' || !SERVICE_ID.test(o.service)) return bad('service');
-  if (typeof o.genTime !== 'string' || Number.isNaN(Date.parse(o.genTime))) return bad('genTime');
-  if (o.accuracyMs !== null && !(Number.isInteger(o.accuracyMs) && (o.accuracyMs as number) >= 0))
-    return bad('accuracyMs');
-  if (
-    typeof o.serial !== 'string' ||
-    !SERIAL.test(o.serial) ||
-    o.serial.length > LIMITS.maxSerialChars
-  )
-    return bad('serial');
-  // Base64url is shorter than Base64 by a quarter at most: the stored (standard) form must fit as well
-  if (typeof o.token !== 'string' || o.token.length > LIMITS.maxAnchorTokenChars * 0.75)
-    return bad('token');
-  const token = base64UrlToBytes(o.token);
-  if (!token) return bad('token');
-  return { ok: true, value: { tsaId: o.service, genTime: o.genTime, serial: o.serial, token } };
-}
-
-/** The service ids of the relay's `GET /v1/services` answer, in the relay's order (at most 32). */
-export function parseServiceList(value: unknown): string[] | null {
-  if (typeof value !== 'object' || value === null) return null;
-  const list = (value as Record<string, unknown>).services;
-  if (!Array.isArray(list) || list.length > 32) return null;
-  const ids: string[] = [];
-  for (const entry of list) {
-    const id = (entry as { id?: unknown } | null)?.id;
-    if (typeof id !== 'string' || !SERVICE_ID.test(id)) return null;
-    ids.push(id);
-  }
-  return ids;
 }

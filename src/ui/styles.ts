@@ -3,8 +3,10 @@ import type { CSSProperties } from 'react';
 /**
  * Stacking order of what floats above the page. The navigation wheel's frame (rad-navi) sits at 1000 and
  * covers the page's top edge, so the error banner (which must stay readable and closable) lies above it.
+ * The forced save of a monthly file covers the wheel and the pages, but not the questions it may lead to
+ * (the reason prompt) nor the error banner.
  */
-export const Z = { wheel: 1000, prompt: 2000, banner: 3000 } as const;
+export const Z = { wheel: 1000, save: 1500, prompt: 2000, banner: 3000 } as const;
 
 /** Plain inline styles that inherit the colours of the surrounding sheet (light and dark). */
 export const styles = {

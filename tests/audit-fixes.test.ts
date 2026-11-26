@@ -1,0 +1,278 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { readTimestampResponse } from 'zeitstempel';
+import {
+  ANCHOR_FAILURE_TEXTS,
+  DEVICE_KEY_TEXTS,
+  addAnchor,
+  anchorCheckNote,
+  anchorsDroppedText,
+  deviceKeyView,
+  emptyBook,
+  exportBackup,
+  stampIn,
+  stampOut,
+  type Anchor,
+  type TimeBook,
+} from '../src/logic/index.ts';
+import { createRelayService, outcomeOf } from '../src/io/anchorService.ts';
+import { checkAnchors, readVerifiedBackup } from '../src/io/anchorCheck.ts';
+import { trustedServices } from '../src/io/zeitstempel.ts';
+import { evidenceFor, val } from './helpers.ts';
+
+describe('device key view: an unusable stored key can be removed', () => {
+  it('offers removal for a usable key and for an unusable one, not for none', () => {
+    expect(deviceKeyView(null, null)).toEqual({ canRemove: false, note: null });
+    expect(deviceKeyView('geraet-1', null)).toEqual({ canRemove: true, note: null });
+    expect(deviceKeyView(null, DEVICE_KEY_TEXTS.unreadable)).toEqual({
+      canRemove: true,
+      note: DEVICE_KEY_TEXTS.unusableStored,
+    });
+  });
+});
+
+describe('adapter failure kinds', () => {
+  const fail = (reason: string, detail?: string) =>
+    outcomeOf({ ok: false, reason, detail } as never, 0);
+  it('sets configuration failures apart from token verification failures', () => {
+    for (const reason of ['bad-pem', 'bad-options', 'bad-services', 'something-new']) {
+      expect(fail(reason), reason).toMatchObject({ ok: false, reason: 'misconfigured' });
+    }
+    expect(ANCHOR_FAILURE_TEXTS.misconfigured).toContain(
+      'Einrichtung dieses Builds ist fehlerhaft',
+    );
+    for (const reason of [
+      'signature-invalid',
+      'untrusted-chain',
+      'bad-tst-info',
+      'unsupported-version',
+    ]) {
+      expect(fail(reason), reason).toMatchObject({ ok: false, reason: 'not-verified' });
+    }
+  });
+
+  it('a bad trust anchor of the build is a configuration failure end to end', async () => {
+    const key = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
+      'sign',
+    ]);
+    const service = createRelayService(
+      'https://relay.example',
+      {
+        keyId: 'geraet-1',
+        privateKey: new Uint8Array(await crypto.subtle.exportKey('pkcs8', key.privateKey)),
+      },
+      { trusted: new Map([['freetsa', { anchors: ['not a pem'] }]]) },
+    );
+    expect(await service.anchor('00'.repeat(32))).toMatchObject({
+      ok: false,
+      reason: 'misconfigured',
+    });
+  });
+});
+
+const PROBE_HASH = createHash('sha256').update('probe').digest('hex');
+const recorded = readTimestampResponse(
+  new Uint8Array(readFileSync(new URL('./fixtures/freetsa.tsr', import.meta.url))),
+);
+if (!recorded.ok) throw new Error('fixture');
+const TOKEN_WALL = Date.parse('2026-11-23T13:06:00.000Z');
+
+async function realAnchor(): Promise<Anchor> {
+  const key = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
+    'sign',
+  ]);
+  const body = {
+    service: 'freetsa',
+    genTime: '2026-11-23T13:05:56.000Z',
+    accuracyMs: null,
+    serial: recorded.ok ? recorded.value.info.serial : '',
+    token: Buffer.from(recorded.ok ? recorded.value.token : new Uint8Array()).toString('base64url'),
+  };
+  const service = createRelayService(
+    'https://relay.example',
+    {
+      keyId: 'geraet-1',
+      privateKey: new Uint8Array(await crypto.subtle.exportKey('pkcs8', key.privateKey)),
+    },
+    {
+      now: () => TOKEN_WALL,
+      monoNow: () => 1,
+      fetch: async () => new Response(JSON.stringify(body), { status: 200 }),
+    },
+  );
+  const out = await service.anchor(PROBE_HASH);
+  if (!out.ok) throw new Error(JSON.stringify(out));
+  return { coveredN: 1, headHash: PROBE_HASH, evidence: out.value.evidence };
+}
+
+describe('clock offset reported back under 30 s', () => {
+  it('reports the offset, then 0 when the relay clock agrees again', async () => {
+    const key = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
+      'sign',
+    ]);
+    const mk = (date: number) => () =>
+      new Response(
+        JSON.stringify({
+          service: 'freetsa',
+          genTime: '2026-11-23T13:05:56.000Z',
+          accuracyMs: null,
+          serial: recorded.ok ? recorded.value.info.serial : '',
+          token: Buffer.from(recorded.ok ? recorded.value.token : new Uint8Array()).toString(
+            'base64url',
+          ),
+        }),
+        { status: 200, headers: { Date: new Date(date).toUTCString() } },
+      );
+    const answers = [mk(TOKEN_WALL + 50_000), mk(TOKEN_WALL + 5_000)];
+    const offsets: number[] = [];
+    const service = createRelayService(
+      'https://relay.example',
+      {
+        keyId: 'geraet-1',
+        privateKey: new Uint8Array(await crypto.subtle.exportKey('pkcs8', key.privateKey)),
+      },
+      {
+        now: () => TOKEN_WALL,
+        monoNow: () => 1,
+        fetch: async () => answers.shift()!(),
+        onClockOffset: (o) => offsets.push(o),
+      },
+    );
+    await service.anchor(PROBE_HASH);
+    await service.anchor(PROBE_HASH);
+    expect(offsets).toEqual([50_000, 0]);
+  });
+});
+
+describe('anchors are verified outside the logic layer', () => {
+  it('accepts a real recorded token and refuses a stand-in token', async () => {
+    const good = await realAnchor();
+    expect(await checkAnchors([good])).toEqual({ total: 1, failed: 0, good: [true] });
+    const fake: Anchor = { ...good, evidence: evidenceFor(PROBE_HASH) };
+    expect(await checkAnchors([good, fake])).toEqual({ total: 2, failed: 1, good: [true, false] });
+    // a wrong trust list fails the real one too
+    expect(
+      await checkAnchors([good], { freetsa: [...trustedServices().get('sectigo')!.anchors] }),
+    ).toEqual({ total: 1, failed: 1, good: [false] });
+  });
+
+  it('trust per service: a token of one service stored as evidence of another is refused', async () => {
+    const good = await realAnchor();
+    expect(good.evidence.service).toBe('freetsa');
+    const renamed: Anchor = { ...good, evidence: { ...good.evidence, service: 'sectigo' } };
+    // the build's own trust: sectigo's anchors do not verify freetsa's token (a combined list did)
+    expect(await checkAnchors([good, renamed])).toEqual({
+      total: 2,
+      failed: 1,
+      good: [true, false],
+    });
+    // a service the build does not know fails like an unverifiable anchor
+    const unknown: Anchor = { ...good, evidence: { ...good.evidence, service: 'unbekannt' } };
+    expect(await checkAnchors([unknown])).toEqual({ total: 1, failed: 1, good: [false] });
+    // injected trust in the map form: only the entry of the evidence's service counts
+    const all = trustedServices();
+    const trust = {
+      freetsa: all.get('freetsa')!.anchors,
+      sectigo: all.get('sectigo')!.anchors,
+    };
+    expect(await checkAnchors([good, renamed], trust)).toEqual({
+      total: 2,
+      failed: 1,
+      good: [true, false],
+    });
+    expect(await checkAnchors([good], { sectigo: all.get('freetsa')!.anchors })).toMatchObject({
+      failed: 1,
+    });
+  });
+
+  it('trust per service: the stamp path refuses a token of another service', async () => {
+    const key = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
+      'sign',
+    ]);
+    const all = trustedServices();
+    const asked: string[] = [];
+    const service = createRelayService(
+      'https://relay.example',
+      {
+        keyId: 'geraet-1',
+        privateKey: new Uint8Array(await crypto.subtle.exportKey('pkcs8', key.privateKey)),
+      },
+      {
+        // sectigo is asked first; the relay hands back FreeTSA's token under sectigo's name
+        trusted: new Map([
+          ['sectigo', { anchors: all.get('sectigo')!.anchors }],
+          ['freetsa', { anchors: all.get('freetsa')!.anchors }],
+        ]),
+        now: () => TOKEN_WALL,
+        monoNow: () => 1,
+        fetch: async (url) => {
+          asked.push(String(url));
+          return new Response(
+            JSON.stringify({
+              service: 'sectigo',
+              genTime: '2026-11-23T13:05:56.000Z',
+              accuracyMs: null,
+              serial: recorded.ok ? recorded.value.info.serial : '',
+              token: Buffer.from(recorded.ok ? recorded.value.token : new Uint8Array()).toString(
+                'base64url',
+              ),
+            }),
+            { status: 200 },
+          );
+        },
+      },
+    );
+    expect(await service.anchor(PROBE_HASH)).toMatchObject({ ok: false, reason: 'not-verified' });
+    expect(asked).toEqual(['https://relay.example/v1/stamp/sectigo']);
+  });
+
+  it('M1: imports a backup without its unverifiable anchors, keeps every time and says how many went', async () => {
+    let stamped = val(
+      stampIn(emptyBook(), { date: '2026-11-20', minute: 480 }, '2026-11-20T08:00:00.000Z'),
+    );
+    stamped = val(
+      stampOut(stamped, { date: '2026-11-20', minute: 960 }, '2026-11-20T16:00:00.000Z'),
+    );
+    const forge = (b: TimeBook, n: number, genTime: string) =>
+      val(
+        addAnchor(
+          b,
+          {
+            coveredN: n,
+            headHash: b.stamps[n - 1]!.hash,
+            evidence: evidenceFor(b.stamps[n - 1]!.hash, { genTime }),
+          },
+          genTime,
+        ),
+      );
+    const forged = forge(
+      forge(stamped, 1, '2026-11-20T08:01:00.000Z'),
+      2,
+      '2026-11-21T08:00:00.000Z',
+    );
+    expect(forged.anchors).toHaveLength(2);
+    const read = await readVerifiedBackup(exportBackup(forged), undefined);
+    expect(read).toEqual({
+      ok: true,
+      value: { ...forged, anchors: [] },
+      dropped: 2,
+      total: 2,
+    });
+    expect(anchorsDroppedText(2, 2)).toMatch(/2 von 2 .* entfernt\. Alle Zeiten wurden übernommen/);
+    const clean = await readVerifiedBackup(exportBackup(stamped), undefined);
+    expect(clean).toEqual({ ok: true, value: stamped, dropped: 0, total: 0 });
+    expect(anchorCheckNote(2)).toContain('2 externe Zeitstempel');
+  });
+
+  it('M1: a backup whose times were changed is still refused, anchors or not', async () => {
+    const stamped = val(
+      stampIn(emptyBook(), { date: '2026-11-20', minute: 480 }, '2026-11-20T08:00:00.000Z'),
+    );
+    const o = JSON.parse(exportBackup(stamped));
+    o.days['2026-11-20'].startMin = 420;
+    expect(await readVerifiedBackup(JSON.stringify(o), undefined)).toEqual({
+      ok: false,
+      reason: 'backup-days-mismatch',
+    });
+  });
+});

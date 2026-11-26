@@ -1,15 +1,11 @@
-// The one place that names where the Zeitstempel library (RFC 3161 reader and verifier) and its data come
-// from. The package is pinned to a commit (see CLAUDE.md); it has no build and no tag yet, so its source
-// and data files are read from the installed package directly. Once a tag with a build is approved, only
-// this file changes (import from 'zeitstempel' instead).
-import {
-  verifyTimestampToken,
-  fromBase64Url,
-  readServices,
-} from '../../node_modules/zeitstempel/src/lib/index.ts';
-import servicesData from '../../node_modules/zeitstempel/services.json';
-
-export { verifyTimestampToken, fromBase64Url };
+// Where the Zeitstempel library's data come from (the relay client is `zeitstempel/client`, used by
+// `anchorService.ts`; the pure evidence readers by `src/logic/evidence.ts`). The package comes by Git
+// reference (built on install). `services.json` is taken
+// through the package's export `zeitstempel/services.json`; the trust anchors (`anchors/*.pem`, also
+// exported) are collected with Vite's `import.meta.glob`, which takes only paths, not package names, so
+// they are still read from the installed package by path.
+import { readServices, readToken } from 'zeitstempel';
+import servicesData from 'zeitstempel/services.json';
 
 const pems = import.meta.glob('../../node_modules/zeitstempel/anchors/*.pem', {
   query: '?raw',
@@ -34,4 +30,13 @@ export function trustedServices(): Map<
     }
   }
   return out;
+}
+
+/** The time a token states (ISO, UTC), or null when it cannot be read. Not a verification. */
+export function tokenTime(token: Uint8Array): string | null {
+  try {
+    return new Date(readToken(token).info.genTime).toISOString();
+  } catch {
+    return null;
+  }
 }
