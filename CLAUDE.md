@@ -188,6 +188,13 @@ npm run build
   The clock warning is computed from the relay's `Date` header. **Open:** the client takes one combined trust list
   for all services, so a token of any shipped service passes under any service id still offered. e2e needs
   `faketime`, `NODE24` and `ZEITSTEMPEL_DIR` (51/51 stamping, 53/53 running PDF, 17/17 retention on 2026-11-25).
+- **Audit loop fixes (2026-11-26):** anchors are verified in the I/O layer (`src/io/anchorCheck.ts`, `verifyEvidence`
+  against all shipped anchors): a backup import is refused with `backup-anchor-unverified` („N von M“), a stored anchor
+  that fails shows a red note on the month page (start is not blocked); the logic layer still checks only the form.
+  `AnchorFailure` has the kind `misconfigured` (the build's own stamp setup is broken, e.g. `bad-pem`); an unusable
+  stored device key can be removed (`deviceKeyView`); the clock warning clears when the clock agrees again. Earlier
+  in the loop: a compacted book with an anchor exactly on `stampBase.n` reads back; a day entered late does not cut
+  the running PDF's newest state. Not run in a browser.
 - One working day per date: a split shift (morning and evening) cannot be recorded as two shifts; use one
   day with a long pause.
 - The stamp clock trusts the device clock. Nothing proves the time (a later stage adds timestamps from a
