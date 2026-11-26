@@ -3,6 +3,7 @@ import {
   LOG_NOTICE,
   anchorCheckNote,
   anchorStatusText,
+  chainMismatchNote,
   evidenceSerial,
   formatIsoDateTime,
   stampsOfMonth,
@@ -44,7 +45,7 @@ import { useAnchorCheck } from './useAnchorCheck.ts';
 import { styles } from './styles.ts';
 
 export function MonthPage() {
-  const { book, getBook, apply, showError } = useBookApi();
+  const { book, getBook, apply, showError, chainMismatch } = useBookApi();
   const anchoring = useAnchoring();
   const failedAnchors = useAnchorCheck(book.anchors);
   const runningPdf = useRunningPdf();
@@ -289,6 +290,11 @@ export function MonthPage() {
           {anchorStatusText(anchoring.status)}
         </p>
         <ClockWarning />
+        {chainMismatch.length > 0 && (
+          <p role="alert" data-chain-check="failed" style={{ ...styles.error, color: '#c62828' }}>
+            {chainMismatchNote(chainMismatch)}
+          </p>
+        )}
         {failedAnchors > 0 && (
           <p role="alert" data-anchor-check="failed" style={{ ...styles.error, color: '#c62828' }}>
             {anchorCheckNote(failedAnchors)}

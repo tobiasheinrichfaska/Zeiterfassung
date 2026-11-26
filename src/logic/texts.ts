@@ -38,6 +38,8 @@ export const REASON_TEXTS: Record<Reason, string> = {
     'Die Daten enthalten externe Zeitstempel in einem alten Format, das nicht mehr gelesen wird.',
   'backup-anchor-unverified':
     'Die Sicherung enthält externe Zeitstempel, die sich nicht prüfen lassen. Es wurde nichts ersetzt.',
+  'backup-days-mismatch':
+    'Die Zeiten in der Sicherung passen nicht zu ihrer Stempelkette: Tage wurden außerhalb der App verändert. Es wurde nichts ersetzt.',
   'bad-relay': 'Diese Adresse des Weiterreichers ist in dieser Fassung nicht erlaubt.',
   'bad-retention': 'Die Aufbewahrung muss zwischen 1 und 120 Monaten liegen.',
   'bad-origin': 'Die Herkunft des Eintrags ist unbekannt.',
@@ -202,6 +204,13 @@ export function unsavedText(reason: string): string {
 /** The refused import of a backup whose external time stamps do not verify: how many, German. */
 export function anchorUnverifiedText(failed: number, total: number): string {
   return `${REASON_TEXTS['backup-anchor-unverified']} (${failed} von ${total} externen Zeitstempeln nicht bestätigt)`;
+}
+
+/** The red note on the month page when stored days do not match the stamp chain (`checkDaysAgainstChain`). */
+export function chainMismatchNote(dates: readonly string[]): string {
+  const shown = dates.slice(0, 5).map(formatIsoDate).join(', ');
+  const more = dates.length > 5 ? ` und ${dates.length - 5} weitere` : '';
+  return `Die gespeicherten Zeiten von ${dates.length} Tag(en) passen nicht zur Stempelkette (${shown}${more}): Sie wurden außerhalb der App verändert. Die angezeigten Zeiten sind für diese Tage nicht belegt.`;
 }
 
 /** The red note on the month page when stored external time stamps fail the check. */

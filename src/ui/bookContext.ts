@@ -14,6 +14,8 @@ export interface BookApi {
    * cannot be dismissed, until a later write of the book is stored.
    */
   unsaved: string | undefined;
+  /** Days whose stored state did not match the stamp chain when the book was loaded (`checkDaysAgainstChain`). */
+  chainMismatch: readonly string[];
   showError(text: string): void;
   dismissError(): void;
 }

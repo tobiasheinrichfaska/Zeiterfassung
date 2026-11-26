@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import type { Vault } from 'local-vault';
 import {
   BOOK_SLOT,
+  checkDaysAgainstChain,
   loadBook,
   reasonText,
   serializeBook,
@@ -24,6 +25,10 @@ export function BookProvider({ vault, children }: { vault: Vault; children: Reac
     loaded.kind === 'ok' ? loaded.book : undefined,
   );
   const [error, setError] = useState<string | undefined>();
+  // checked once on load: the app's own writes keep days and chain in step
+  const [chainMismatch] = useState<readonly string[]>(() =>
+    loaded.kind === 'ok' ? checkDaysAgainstChain(loaded.book) : [],
+  );
   const latest = useLatest<TimeBook | undefined>(book);
   const getBook = latest.get as () => TimeBook;
 
@@ -62,10 +67,11 @@ export function BookProvider({ vault, children }: { vault: Vault; children: Reac
             apply,
             error,
             unsaved,
+            chainMismatch,
             showError: setError,
             dismissError: () => setError(undefined),
           },
-    [book, getBook, apply, error, unsaved],
+    [book, getBook, apply, error, unsaved, chainMismatch],
   );
 
   if (loaded.kind === 'unreadable' || api === undefined) {

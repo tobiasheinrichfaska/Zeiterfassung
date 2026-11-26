@@ -106,6 +106,42 @@ export function sealElapsedDays(book: TimeBook, today: DateKey, nowIso: string):
   return ok(next);
 }
 
+/**
+ * The days that do not match the stamp chain (sorted). The chain holds, for every write to a day, the
+ * hash of that day's state (`dayContentHash`); the newest stamp of a date must therefore carry the hash
+ * of the day as it is now. A mismatch is:
+ * - a day whose newest stamp has another content hash (a time, a break, the note … changed outside the app);
+ * - a day without any stamp that was recorded after the chain began (`recordedAt` at or after the time of
+ *   the base, else of the first stamp): days from before the chain (a book of version 1 or 2) have none;
+ * - a date whose newest stamp is not the deletion marker although the day is gone, unless its month was
+ *   exported (purging after an export deletes days without a stamp).
+ * Pure; nothing is changed. Used when the book is loaded (a note) and on a backup import (refused).
+ */
+export function checkDaysAgainstChain(
+  book: Pick<TimeBook, 'days' | 'stamps' | 'stampBase' | 'exportedMonths'>,
+): DateKey[] {
+  const newest = new Map<DateKey, Stamp>();
+  for (const s of book.stamps) newest.set(s.date, s);
+  const startIso = book.stampBase?.at ?? book.stamps[0]?.at;
+  const start = startIso === undefined ? undefined : Date.parse(startIso);
+  const bad = new Set<DateKey>();
+  for (const [date, day] of Object.entries(book.days)) {
+    const stamp = newest.get(date);
+    if (stamp) {
+      if (stamp.contentHash !== dayContentHash(date, day)) bad.add(date);
+    } else if (start !== undefined && !(Date.parse(day.recordedAt) < start)) {
+      bad.add(date);
+    }
+  }
+  for (const [date, stamp] of newest) {
+    if (date in book.days) continue;
+    if (stamp.contentHash === dayContentHash(date, undefined)) continue;
+    if (monthOf(date) in book.exportedMonths) continue;
+    bad.add(date);
+  }
+  return [...bad].sort();
+}
+
 /** The stamps made for days of one month. */
 export const stampsOfMonth = (book: TimeBook, month: MonthKey): Stamp[] =>
   book.stamps.filter((s) => monthOf(s.date) === month);

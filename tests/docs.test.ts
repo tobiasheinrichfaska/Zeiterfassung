@@ -26,6 +26,7 @@ const REASONS: Record<Reason, true> = {
   'too-many-anchors': true,
   'old-anchor-format': true,
   'backup-anchor-unverified': true,
+  'backup-days-mismatch': true,
   'bad-relay': true,
   'wrong-password': true,
   'password-required': true,
@@ -161,6 +162,10 @@ describe('docs/data-model.html against the code', () => {
       'decodeRunningPdf',
       'runningPdfLines',
       'bookUpTo',
+      'checkDaysAgainstChain',
+      'thinAnchors',
+      'anchorsForStamps',
+      'vaultFits',
     ];
     for (const name of documented) {
       expect(typeof logic[name], name).toBe('function');

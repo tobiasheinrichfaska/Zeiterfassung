@@ -77,7 +77,7 @@ describe('the section „Zeitstempel“ in the JSON attachment', () => {
       },
     ]);
     expect(t.note).toMatch(/device clock/);
-    expect(data.version).toBe(3);
+    expect(data.version).toBe(4);
   });
 
   it('only has the stamps of the month asked for and only their anchors, but the head', () => {

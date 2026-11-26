@@ -4,7 +4,7 @@ import { monthSummary } from './summary.ts';
 import { formatClock, isDateKey, isMonthKey, monthOf } from './time.ts';
 import { canonicalJson, type Json } from './canonical.ts';
 import { anchorStatus, anchorsForStamps, coveredUpTo, type AnchorStatus } from './anchors.ts';
-import { chainHead, skewedStamps, stampsOfMonth } from './stamps.ts';
+import { chainHead, dayContentHash, skewedStamps, stampsOfMonth } from './stamps.ts';
 import type { Anchor, Stamp, StampBase } from './model.ts';
 
 /** What the report says about the time stamps of one month (the PDF prints it, the JSON carries it). */
@@ -51,7 +51,7 @@ export function monthTimestamps(
 
 /** Format marker and version of the monthly data file (the attachment of the PDF). */
 export const REPORT_FORMAT = 'zeiterfassung-monat';
-export const REPORT_VERSION = 3;
+export const REPORT_VERSION = 4;
 
 /** File name of the attached data file. */
 export const attachmentName = (month: MonthKey): string => `zeiterfassung-${month}.json`;
@@ -104,6 +104,9 @@ export function monthToJson(
       workMinutes: r.workMinutes,
       origin: r.origin,
       note: r.note,
+      // with the fields above exactly the input of `dayContentHash` (version 4): the chain can be checked
+      recordedAt: day?.recordedAt ?? null,
+      contentHash: day ? dayContentHash(r.date, day) : null,
     };
   });
   const changes: Json[] = changesOfMonth(book, month).map((c) => ({
@@ -143,7 +146,13 @@ function timestampsJson(t: TimestampSection, base: StampBase | null): Json {
       'Internal stamps use the device clock and prove no time; only the anchors prove a time. Each anchor ' +
       'holds the evidence (format v1 of zeitstempel/client): service, hash (base64url of headHash), the ' +
       'time of the checked token and the RFC 3161 DER token as base64url. Check it with verifyEvidence of ' +
-      "zeitstempel/client, or decode the token and use openssl ts against the service's root certificate.",
+      "zeitstempel/client, or decode the token and use openssl ts against the service's root certificate. " +
+      'Only the anchors of this month are listed: for each of its stamps the first anchor covering it, and ' +
+      'the newest one before the month. Recompute a day: SHA-256 (hex) of the UTF-8 canonical JSON (keys ' +
+      'sorted at every level, two-space indent, final line break) of {date, startMin, endMin, breaks, ' +
+      'origin, note, recordedAt} of that day equals contentHash of its newest stamp; a removed day hashes ' +
+      '{date, deleted: true}. A stamp hash is the same over {n, at, kind, date, contentHash, prev, skew}, ' +
+      'and prev is the hash of the stamp before.',
     chainHeadN: t.head?.n ?? 0,
     chainHeadHash: t.head?.hash ?? null,
     chainBase: base ? { n: base.n, hash: base.hash, at: base.at } : null,

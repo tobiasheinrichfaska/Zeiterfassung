@@ -1,5 +1,6 @@
 import { LIMITS, fail, ok, type Reason, type Result, type TimeBook } from './model.ts';
 import { importBackup } from './backup.ts';
+import { checkDaysAgainstChain } from './stamps.ts';
 
 /** The parameters of the encrypted backup, as data (the header of every file carries its own copy). */
 export const BACKUP_CRYPTO = {
@@ -198,9 +199,16 @@ export async function openBackup(text: string, password: string): Promise<Result
   }
 }
 
+/** A read backup whose days do not match its own stamp chain is refused (`backup-days-mismatch`). */
+function matchingChain(read: Result<TimeBook>): Result<TimeBook> {
+  if (!read.ok) return read;
+  return checkDaysAgainstChain(read.value).length > 0 ? fail('backup-days-mismatch') : read;
+}
+
 /**
  * Reads a backup file of either form. A plain file is read as before; an encrypted one needs the
- * password (`password-required` when none was given).
+ * password (`password-required` when none was given). Its days must match its stamp chain
+ * (`checkDaysAgainstChain`), else `backup-days-mismatch`.
  */
 export async function readBackupFile(text: string, password?: string): Promise<Result<TimeBook>> {
   if (
@@ -209,8 +217,8 @@ export async function readBackupFile(text: string, password?: string): Promise<R
   ) {
     return fail('bad-backup');
   }
-  if (!isEncryptedBackup(text)) return importBackup(text);
+  if (!isEncryptedBackup(text)) return matchingChain(importBackup(text));
   if (password === undefined || password === '') return fail('password-required');
   const plain = await openBackup(text, password);
-  return plain.ok ? importBackup(plain.value) : plain;
+  return plain.ok ? matchingChain(importBackup(plain.value)) : plain;
 }
