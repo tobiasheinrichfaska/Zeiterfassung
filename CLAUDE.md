@@ -34,8 +34,8 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
   `*.zeiterfassung.json`).
 - Dependencies `local-vault` (tag `v0.1.0`) and `rad-navi` (tag `v0.1.1`) come by Git tag; their install
   scripts build them (`prepare`). Tags are changed only with Tobias' OK.
-- **Zeitstempel library (TEMPORARY pin):** `zeitstempel` is pinned to commit `07f4c32` (its `main` after PR #10:
-  one client `zeitstempel/client`, relay auth v3, evidence v1, trust per service; built on install by its `prepare`)
+- **Zeitstempel library (TEMPORARY pin):** `zeitstempel` is pinned to commit `c50a72e` (its `main` after PR #11:
+  one client `zeitstempel/client`, relay auth v3, evidence v1, trust per service, `verifyEvidence` takes the whole map; built on install by its `prepare`)
   until the PC pushes the approved tag `v0.2.0` on that commit (then switch to `#v0.2.0`). The app uses `createRelayClient` from
   `zeitstempel/client` through the thin adapter `src/io/anchorService.ts` (German texts stay in the app; timeout
   130 s; no `GET /v1/services`: services and trust come from the package's `services.json`/`anchors`). **Audience**
@@ -192,8 +192,7 @@ npm run build
   a map `{ [serviceId]: PEM[] }` with one entry per offered service, and `src/io/anchorCheck.ts` checks a stored or
   restored anchor only against the anchors of the service its evidence names (a service the build does not know
   fails like an unverifiable anchor); a token of one service under another service's id is refused (stamp and
-  check, `tests/audit-fixes.test.ts`). `verifyEvidence` of that commit refuses a map with keys other than the
-  evidence's service (`bad-options`), so `anchorCheck.ts` passes only that one entry. e2e needs
+  check, `tests/audit-fixes.test.ts`). `verifyEvidence` gets the whole map (since `c50a72e`; before, it refused keys other than the evidence's service). e2e needs
   `faketime`, `NODE24` and `ZEITSTEMPEL_DIR` (51/51 stamping, 53/53 running PDF, 17/17 retention on 2026-11-25).
 - **Audit loop fixes (2026-11-26):** anchors are verified in the I/O layer (`src/io/anchorCheck.ts`, `verifyEvidence`
   against the shipped anchors of the evidence's service): unverifiable anchors of a backup are dropped (times kept, count shown before and after), days that do not

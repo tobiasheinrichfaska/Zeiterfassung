@@ -27,17 +27,6 @@ function buildTrust(): ServiceTrust {
   return Object.fromEntries([...trustedServices()].map(([id, s]) => [id, s.anchors]));
 }
 
-/**
- * The map handed to `verifyEvidence`: only the entry of the evidence's own service, or none (then the
- * library answers `bad-evidence`). `verifyEvidence` of zeitstempel 07f4c32 takes the evidence's service as
- * the only allowed key and answers a map with any other key `bad-options`, so the whole map is not passed.
- */
-function trustFor(trust: ServiceTrust, anchor: Anchor): ServiceTrust {
-  const service = anchor.evidence.service;
-  const own = Object.hasOwn(trust, service) ? trust[service] : undefined;
-  return own === undefined ? {} : { [service]: own };
-}
-
 /** Results by service, token and hash, for the build's trust only (a stored book is checked again at every change). */
 const known = new Map<string, boolean>();
 
@@ -63,7 +52,7 @@ export async function checkAnchors(
       const hash = hexToBytes(anchor.headHash);
       try {
         const result = hash
-          ? await verifyEvidence(anchor.evidence, hash, { trust: trustFor(useTrust, anchor) })
+          ? await verifyEvidence(anchor.evidence, hash, { trust: useTrust })
           : { ok: false };
         good = result.ok;
       } catch {
