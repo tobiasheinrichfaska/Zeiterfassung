@@ -236,7 +236,9 @@ export function createRelayService(
     const ids = [...trusted.keys()].filter((id) => !missing.has(id));
     const key = ids.join(',');
     if (current?.key === key) return current.client;
-    const trust = [...new Set(ids.flatMap((id) => trusted.get(id)?.anchors ?? []))];
+    // trust per service (decided in zeitstempel PR #10): a token is checked only against the anchors of
+    // the service it was asked from, never against those of another service the build ships
+    const trust = Object.fromEntries(ids.map((id) => [id, trusted.get(id)?.anchors ?? []]));
     const made =
       ids.length === 0
         ? null

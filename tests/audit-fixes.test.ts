@@ -151,11 +151,79 @@ describe('anchors are verified outside the logic layer', () => {
     const fake: Anchor = { ...good, evidence: evidenceFor(PROBE_HASH) };
     expect(await checkAnchors([good, fake])).toEqual({ total: 2, failed: 1, good: [true, false] });
     // a wrong trust list fails the real one too
-    expect(await checkAnchors([good], [...trustedServices().get('sectigo')!.anchors])).toEqual({
-      total: 1,
+    expect(
+      await checkAnchors([good], { freetsa: [...trustedServices().get('sectigo')!.anchors] }),
+    ).toEqual({ total: 1, failed: 1, good: [false] });
+  });
+
+  it('trust per service: a token of one service stored as evidence of another is refused', async () => {
+    const good = await realAnchor();
+    expect(good.evidence.service).toBe('freetsa');
+    const renamed: Anchor = { ...good, evidence: { ...good.evidence, service: 'sectigo' } };
+    // the build's own trust: sectigo's anchors do not verify freetsa's token (a combined list did)
+    expect(await checkAnchors([good, renamed])).toEqual({
+      total: 2,
       failed: 1,
-      good: [false],
+      good: [true, false],
     });
+    // a service the build does not know fails like an unverifiable anchor
+    const unknown: Anchor = { ...good, evidence: { ...good.evidence, service: 'unbekannt' } };
+    expect(await checkAnchors([unknown])).toEqual({ total: 1, failed: 1, good: [false] });
+    // injected trust in the map form: only the entry of the evidence's service counts
+    const all = trustedServices();
+    const trust = {
+      freetsa: all.get('freetsa')!.anchors,
+      sectigo: all.get('sectigo')!.anchors,
+    };
+    expect(await checkAnchors([good, renamed], trust)).toEqual({
+      total: 2,
+      failed: 1,
+      good: [true, false],
+    });
+    expect(await checkAnchors([good], { sectigo: all.get('freetsa')!.anchors })).toMatchObject({
+      failed: 1,
+    });
+  });
+
+  it('trust per service: the stamp path refuses a token of another service', async () => {
+    const key = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
+      'sign',
+    ]);
+    const all = trustedServices();
+    const asked: string[] = [];
+    const service = createRelayService(
+      'https://relay.example',
+      {
+        keyId: 'geraet-1',
+        privateKey: new Uint8Array(await crypto.subtle.exportKey('pkcs8', key.privateKey)),
+      },
+      {
+        // sectigo is asked first; the relay hands back FreeTSA's token under sectigo's name
+        trusted: new Map([
+          ['sectigo', { anchors: all.get('sectigo')!.anchors }],
+          ['freetsa', { anchors: all.get('freetsa')!.anchors }],
+        ]),
+        now: () => TOKEN_WALL,
+        monoNow: () => 1,
+        fetch: async (url) => {
+          asked.push(String(url));
+          return new Response(
+            JSON.stringify({
+              service: 'sectigo',
+              genTime: '2026-11-23T13:05:56.000Z',
+              accuracyMs: null,
+              serial: recorded.ok ? recorded.value.info.serial : '',
+              token: Buffer.from(recorded.ok ? recorded.value.token : new Uint8Array()).toString(
+                'base64url',
+              ),
+            }),
+            { status: 200 },
+          );
+        },
+      },
+    );
+    expect(await service.anchor(PROBE_HASH)).toMatchObject({ ok: false, reason: 'not-verified' });
+    expect(asked).toEqual(['https://relay.example/v1/stamp/sectigo']);
   });
 
   it('M1: imports a backup without its unverifiable anchors, keeps every time and says how many went', async () => {

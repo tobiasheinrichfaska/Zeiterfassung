@@ -342,7 +342,7 @@ describe('the authenticated relay (adapter)', () => {
   it('corrects the clock once by the relay’s Date after a 401 (at most 65 s), then the token is fresh', async () => {
     const { pkcs8 } = await makeKey();
     const auth = { privateKey: pkcs8, keyId: 'geraet-1' };
-    const device = GEN + 64_000; // 64 s ahead: the token would look back-dated
+    const device = GEN - 60_000; // 63 s behind the relay: the relay refuses the head until the clock is corrected
     const relayDate = new Date(GEN + 3000).toUTCString();
     const r = relay(json(401, { error: 'unauthorized' }, { Date: relayDate }), answer());
     const offsets: number[] = [];
@@ -353,6 +353,13 @@ describe('the authenticated relay (adapter)', () => {
     expect(out.ok).toBe(true);
     expect(r.seen).toHaveLength(2);
     expect(offsets).toEqual([Date.parse(relayDate) - device]); // the clock warning learns it too
+    // 64 s ahead: the relay's Date may only tighten the freshness (zeitstempel 07f4c32), so the
+    // token counts as back-dated although the signed head was corrected
+    const ahead = relay(json(401, { error: 'unauthorized' }, { Date: relayDate }), answer());
+    expect(
+      await service(ahead.fn, auth, { now: () => GEN + 64_000 }).anchor(PROBE_HASH),
+    ).toMatchObject({ ok: false, reason: 'not-verified' });
+    expect(ahead.seen).toHaveLength(2);
     // two hours off: no correction (a relay could move the freshness check), the key looks refused
     const far = relay(json(401, { error: 'unauthorized' }, { Date: relayDate }));
     const warned: number[] = [];

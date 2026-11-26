@@ -15,35 +15,55 @@ export interface AnchorCheck {
   good: boolean[];
 }
 
-/** The trust anchors of this build, every service together (the client takes one combined list too). */
-function buildTrust(): string[] {
-  return [...new Set([...trustedServices().values()].flatMap((s) => s.anchors))];
+/**
+ * Trust anchors by service id (the form `zeitstempel/client` takes): a token counts only against the anchors
+ * of the service its evidence names. Evidence that names a service this build does not know fails
+ * (`bad-evidence`), like evidence that does not verify.
+ */
+export type ServiceTrust = Readonly<Record<string, readonly string[]>>;
+
+/** The trust anchors of this build, one entry per service. */
+function buildTrust(): ServiceTrust {
+  return Object.fromEntries([...trustedServices()].map(([id, s]) => [id, s.anchors]));
 }
 
-/** Results by token and hash, for the build's trust only (a stored book is checked again at every change). */
+/**
+ * The map handed to `verifyEvidence`: only the entry of the evidence's own service, or none (then the
+ * library answers `bad-evidence`). `verifyEvidence` of zeitstempel 07f4c32 takes the evidence's service as
+ * the only allowed key and answers a map with any other key `bad-options`, so the whole map is not passed.
+ */
+function trustFor(trust: ServiceTrust, anchor: Anchor): ServiceTrust {
+  const service = anchor.evidence.service;
+  const own = Object.hasOwn(trust, service) ? trust[service] : undefined;
+  return own === undefined ? {} : { [service]: own };
+}
+
+/** Results by service, token and hash, for the build's trust only (a stored book is checked again at every change). */
 const known = new Map<string, boolean>();
 
 /**
  * Verifies the evidence of every anchor against the anchor's `headHash` with the library's `verifyEvidence`
- * (token signature, certificate chain to the build's anchors, hash). No freshness rule: the evidence is old
+ * (token signature, certificate chain to the build's anchors of the evidence's service, hash). No freshness rule: the evidence is old
  * by now. The logic layer only reads the form (`checkedEvidence`); this is the check of the token itself.
  * Never throws.
  */
 export async function checkAnchors(
   anchors: readonly Anchor[],
-  trust?: string[],
+  trust?: ServiceTrust,
 ): Promise<AnchorCheck> {
   const useTrust = trust ?? buildTrust();
   let failed = 0;
   const goods: boolean[] = [];
   for (const anchor of anchors) {
-    const key = trust ? null : `${anchor.headHash}|${anchor.evidence.token}`;
+    const key = trust
+      ? null
+      : `${anchor.evidence.service}|${anchor.headHash}|${anchor.evidence.token}`;
     let good = key === null ? undefined : known.get(key);
     if (good === undefined) {
       const hash = hexToBytes(anchor.headHash);
       try {
         const result = hash
-          ? await verifyEvidence(anchor.evidence, hash, { trust: useTrust })
+          ? await verifyEvidence(anchor.evidence, hash, { trust: trustFor(useTrust, anchor) })
           : { ok: false };
         good = result.ok;
       } catch {
@@ -70,7 +90,7 @@ export type VerifiedBackup =
 export async function readVerifiedBackup(
   text: string,
   password: string | undefined,
-  trust?: string[],
+  trust?: ServiceTrust,
 ): Promise<VerifiedBackup> {
   const read = await readBackupFile(text, password);
   if (!read.ok) return read;

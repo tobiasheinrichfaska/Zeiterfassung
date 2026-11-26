@@ -336,11 +336,23 @@ describe('the relay adapter', () => {
       detail: 'Status 502, upstream-invalid',
     });
     expect(r.seen).toHaveLength(4);
+    // the token of the recorded fixture is FreeTSA's, and trust is per service: FreeTSA comes second here
+    const all = trustedServices();
     const ok = relay(
       json(504, { error: 'upstream-timeout' }),
-      json(200, answer({ service: 'sectigo' })),
+      json(200, answer({ service: 'freetsa' })),
     );
-    expect((await relayService(RELAY, { fetch: ok.fn }).anchor(PROBE_HASH)).ok).toBe(true);
+    const sectigoFirst = new Map([
+      ['sectigo', { anchors: all.get('sectigo')!.anchors }],
+      ['freetsa', { anchors: all.get('freetsa')!.anchors }],
+    ]);
+    expect(
+      (await relayService(RELAY, { fetch: ok.fn, trusted: sectigoFirst }).anchor(PROBE_HASH)).ok,
+    ).toBe(true);
+    expect(ok.seen.map((s) => s.url)).toEqual([
+      `${RELAY}/v1/stamp/sectigo`,
+      `${RELAY}/v1/stamp/freetsa`,
+    ]);
     const down = relayService(RELAY, {
       fetch: async () => {
         throw new TypeError('Failed to fetch');

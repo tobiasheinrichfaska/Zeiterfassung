@@ -34,9 +34,9 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
   `*.zeiterfassung.json`).
 - Dependencies `local-vault` (tag `v0.1.0`) and `rad-navi` (tag `v0.1.1`) come by Git tag; their install
   scripts build them (`prepare`). Tags are changed only with Tobias' OK.
-- **Zeitstempel library (TEMPORARY pin):** `zeitstempel` is pinned to commit `a3534d5` (its `main` after PRs #8/#9:
-  one client `zeitstempel/client`, relay auth v3, evidence v1; built on install by its `prepare`) until the PC pushes
-  the approved tag `v0.2.0` on that commit (then switch to `#v0.2.0`). The app uses `createRelayClient` from
+- **Zeitstempel library (TEMPORARY pin):** `zeitstempel` is pinned to commit `07f4c32` (its `main` after PR #10:
+  one client `zeitstempel/client`, relay auth v3, evidence v1, trust per service; built on install by its `prepare`)
+  until the PC pushes the approved tag `v0.2.0` on that commit (then switch to `#v0.2.0`). The app uses `createRelayClient` from
   `zeitstempel/client` through the thin adapter `src/io/anchorService.ts` (German texts stay in the app; timeout
   130 s; no `GET /v1/services`: services and trust come from the package's `services.json`/`anchors`). **Audience**
   from the build variable `VITE_TIMESTAMP_AUDIENCE` (default: the relay origin). **Every stamp `mode: 'solo'`**; the
@@ -185,12 +185,18 @@ npm run build
   `zeitstempel/client`, read strictly with `readEvidence`, its hash = `headHash`, token at most 16384 characters);
   UI and PDF read service, genTime and serial from it; the JSON attachment is version 3. Versions 1–3 are still read
   for workdays; a format-3 anchor is refused (`old-anchor-format`; no real data existed). Freshness is the client's
-  (`minGenTime`, one clock correction of at most 65 s after a 401): a device clock off by more than 65 s gets a 401.
-  The clock warning is computed from the relay's `Date` header. **Open:** the client takes one combined trust list
-  for all services, so a token of any shipped service passes under any service id still offered. e2e needs
+  (`minGenTime`, one clock correction of at most 65 s after a 401): a device clock off by more than 65 s gets a 401;
+  since `07f4c32` the relay's `Date` may only tighten freshness, so a device clock **more than 60 s ahead** gets
+  genuine tokens refused as back-dated (`not-verified`; a clock behind is corrected).
+  The clock warning is computed from the relay's `Date` header. **Trust per service (since `07f4c32`):** the client gets
+  a map `{ [serviceId]: PEM[] }` with one entry per offered service, and `src/io/anchorCheck.ts` checks a stored or
+  restored anchor only against the anchors of the service its evidence names (a service the build does not know
+  fails like an unverifiable anchor); a token of one service under another service's id is refused (stamp and
+  check, `tests/audit-fixes.test.ts`). `verifyEvidence` of that commit refuses a map with keys other than the
+  evidence's service (`bad-options`), so `anchorCheck.ts` passes only that one entry. e2e needs
   `faketime`, `NODE24` and `ZEITSTEMPEL_DIR` (51/51 stamping, 53/53 running PDF, 17/17 retention on 2026-11-25).
 - **Audit loop fixes (2026-11-26):** anchors are verified in the I/O layer (`src/io/anchorCheck.ts`, `verifyEvidence`
-  against all shipped anchors): unverifiable anchors of a backup are dropped (times kept, count shown before and after), days that do not
+  against the shipped anchors of the evidence's service): unverifiable anchors of a backup are dropped (times kept, count shown before and after), days that do not
   match the stamp chain refuse the import (`backup-days-mismatch`; on load a red note, `checkDaysAgainstChain`), a stored anchor
   that fails shows a red note on the month page (start is not blocked); the logic layer still checks only the form.
   `AnchorFailure` has the kind `misconfigured` (the build's own stamp setup is broken, e.g. `bad-pem`); an unusable
