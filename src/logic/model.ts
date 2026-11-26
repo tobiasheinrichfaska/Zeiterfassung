@@ -205,7 +205,6 @@ export type Reason =
   | 'anchor-skew'
   | 'too-many-anchors'
   | 'old-anchor-format'
-  | 'backup-anchor-unverified'
   | 'backup-days-mismatch'
   | 'bad-relay'
   | 'wrong-password'

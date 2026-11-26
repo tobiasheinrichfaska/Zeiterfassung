@@ -25,7 +25,6 @@ const REASONS: Record<Reason, true> = {
   'anchor-skew': true,
   'too-many-anchors': true,
   'old-anchor-format': true,
-  'backup-anchor-unverified': true,
   'backup-days-mismatch': true,
   'bad-relay': true,
   'wrong-password': true,

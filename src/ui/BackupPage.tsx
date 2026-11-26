@@ -1,7 +1,7 @@
 import { useState, type ChangeEvent } from 'react';
 import {
   BACKUP_CRYPTO,
-  anchorUnverifiedText,
+  anchorsDroppedText,
   backupFileName,
   checkNewPassword,
   clockFromDate,
@@ -86,16 +86,18 @@ export function BackupPage() {
       if (!read.ok) {
         if (read.reason === 'password-required') return setWaiting({ name, text });
         if (read.reason === 'wrong-password') setWaiting({ name, text });
-        const why =
-          read.reason === 'backup-anchor-unverified' && read.failed !== undefined
-            ? anchorUnverifiedText(read.failed, read.total ?? read.failed)
-            : reasonText(read.reason);
-        return showError(`Die Datei „${name}“ kann nicht eingespielt werden: ${why}`);
+        return showError(
+          `Die Datei „${name}“ kann nicht eingespielt werden: ${reasonText(read.reason)}`,
+        );
       }
       setWaiting(undefined);
       setRestorePassword('');
-      if (!confirm(replaceQuestion(book, read.value))) return;
-      if (apply(okResult(read.value))) setInfo('Die Sicherung wurde eingespielt.');
+      // anchors that do not verify are dropped (the times are kept): the person is told before and after
+      const dropped = read.dropped > 0 ? anchorsDroppedText(read.dropped, read.total) : '';
+      if (!confirm(`${replaceQuestion(book, read.value)}${dropped ? `\n\n${dropped}` : ''}`))
+        return;
+      if (apply(okResult(read.value)))
+        setInfo(`Die Sicherung wurde eingespielt.${dropped ? ` ${dropped}` : ''}`);
     } catch (error) {
       showError(
         `Die Datei konnte nicht gelesen werden: ${error instanceof Error ? error.message : String(error)}`,

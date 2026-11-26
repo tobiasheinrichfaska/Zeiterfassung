@@ -36,8 +36,6 @@ export const REASON_TEXTS: Record<Reason, string> = {
   'too-many-anchors': 'Es sind höchstens 400 externe Zeitstempel möglich.',
   'old-anchor-format':
     'Die Daten enthalten externe Zeitstempel in einem alten Format, das nicht mehr gelesen wird.',
-  'backup-anchor-unverified':
-    'Die Sicherung enthält externe Zeitstempel, die sich nicht prüfen lassen. Es wurde nichts ersetzt.',
   'backup-days-mismatch':
     'Die Zeiten in der Sicherung passen nicht zu ihrer Stempelkette: Tage wurden außerhalb der App verändert. Es wurde nichts ersetzt.',
   'bad-relay': 'Diese Adresse des Weiterreichers ist in dieser Fassung nicht erlaubt.',
@@ -201,9 +199,12 @@ export function unsavedText(reason: string): string {
   return `Achtung: Speichern ist fehlgeschlagen (${reason}). Die erfassten Zeiten sind möglicherweise nicht gespeichert und könnten beim Neuladen fehlen. Bitte die App nicht schließen, eine Sicherung herunterladen und Speicherplatz freigeben (z. B. die Monatsdatei speichern).`;
 }
 
-/** The refused import of a backup whose external time stamps do not verify: how many, German. */
-export function anchorUnverifiedText(failed: number, total: number): string {
-  return `${REASON_TEXTS['backup-anchor-unverified']} (${failed} von ${total} externen Zeitstempeln nicht bestätigt)`;
+/**
+ * A backup whose external time stamps partly do not verify is imported without them (decision Tobias
+ * 2026-11-26): how many were dropped and what that means, German.
+ */
+export function anchorsDroppedText(dropped: number, total: number): string {
+  return `Achtung: ${dropped} von ${total} externen Zeitstempeln der Sicherung ließen sich nicht prüfen und wurden entfernt. Alle Zeiten wurden übernommen. Die Abschnitte der Stempelkette, die nur diese Zeitstempel belegt haben, sind nicht mehr extern belegt; der nächste externe Zeitstempel deckt sie erst ab seiner eigenen Zeit ab.`;
 }
 
 /** The red note on the month page when stored days do not match the stamp chain (`checkDaysAgainstChain`). */

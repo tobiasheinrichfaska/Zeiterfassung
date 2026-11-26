@@ -8,10 +8,11 @@ import {
 } from '../logic/index.ts';
 import { trustedServices } from './zeitstempel.ts';
 
-/** How many anchors were looked at and how many did not verify. */
+/** How many anchors were looked at and how many did not verify; `good[i]` for each anchor. */
 export interface AnchorCheck {
   total: number;
   failed: number;
+  good: boolean[];
 }
 
 /** The trust anchors of this build, every service together (the client takes one combined list too). */
@@ -34,6 +35,7 @@ export async function checkAnchors(
 ): Promise<AnchorCheck> {
   const useTrust = trust ?? buildTrust();
   let failed = 0;
+  const goods: boolean[] = [];
   for (const anchor of anchors) {
     const key = trust ? null : `${anchor.headHash}|${anchor.evidence.token}`;
     let good = key === null ? undefined : known.get(key);
@@ -50,16 +52,20 @@ export async function checkAnchors(
       if (key !== null) known.set(key, good);
     }
     if (!good) failed += 1;
+    goods.push(good);
   }
-  return { total: anchors.length, failed };
+  return { total: anchors.length, failed, good: goods };
 }
 
 export type VerifiedBackup =
-  { ok: true; value: TimeBook } | { ok: false; reason: Reason; failed?: number; total?: number };
+  { ok: true; value: TimeBook; dropped: number; total: number } | { ok: false; reason: Reason };
 
 /**
- * Reads a backup file (`readBackupFile`) and, before anyone may replace the book with it, verifies every
- * anchor's evidence. Any failure: `backup-anchor-unverified` with the counts, nothing is returned to use.
+ * Reads a backup file (`readBackupFile`: strict, and its days must match its stamp chain) and verifies
+ * every anchor's evidence before anyone may replace the book with it. An anchor that does not verify is
+ * **dropped** (decision Tobias 2026-11-26): every time is kept, the remaining anchors stay in order, and
+ * `dropped` says how many went (the stretch of the chain only they covered is no longer externally
+ * covered; a later anchor covers it again from its own time on).
  */
 export async function readVerifiedBackup(
   text: string,
@@ -68,9 +74,13 @@ export async function readVerifiedBackup(
 ): Promise<VerifiedBackup> {
   const read = await readBackupFile(text, password);
   if (!read.ok) return read;
-  const check = await checkAnchors(read.value.anchors, trust);
-  if (check.failed > 0) {
-    return { ok: false, reason: 'backup-anchor-unverified', ...check };
-  }
-  return read;
+  const book = read.value;
+  const check = await checkAnchors(book.anchors, trust);
+  const anchors = book.anchors.filter((_, i) => check.good[i]);
+  return {
+    ok: true,
+    value: check.failed > 0 ? { ...book, anchors } : book,
+    dropped: check.failed,
+    total: check.total,
+  };
 }

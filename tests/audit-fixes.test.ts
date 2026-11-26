@@ -4,14 +4,14 @@ import { readTimestampResponse } from 'zeitstempel';
 import {
   ANCHOR_FAILURE_TEXTS,
   DEVICE_KEY_TEXTS,
-  REASON_TEXTS,
   addAnchor,
   anchorCheckNote,
-  anchorUnverifiedText,
+  anchorsDroppedText,
   deviceKeyView,
   emptyBook,
   exportBackup,
   stampIn,
+  stampOut,
   type Anchor,
   type TimeBook,
 } from '../src/logic/index.ts';
@@ -147,39 +147,64 @@ describe('clock offset reported back under 30 s', () => {
 describe('anchors are verified outside the logic layer', () => {
   it('accepts a real recorded token and refuses a stand-in token', async () => {
     const good = await realAnchor();
-    expect(await checkAnchors([good])).toEqual({ total: 1, failed: 0 });
+    expect(await checkAnchors([good])).toEqual({ total: 1, failed: 0, good: [true] });
     const fake: Anchor = { ...good, evidence: evidenceFor(PROBE_HASH) };
-    expect(await checkAnchors([good, fake])).toEqual({ total: 2, failed: 1 });
+    expect(await checkAnchors([good, fake])).toEqual({ total: 2, failed: 1, good: [true, false] });
     // a wrong trust list fails the real one too
     expect(await checkAnchors([good], [...trustedServices().get('sectigo')!.anchors])).toEqual({
       total: 1,
       failed: 1,
+      good: [false],
     });
   });
 
-  it('refuses a backup with an unverifiable anchor and names the count; passes one without anchors', async () => {
+  it('M1: imports a backup without its unverifiable anchors, keeps every time and says how many went', async () => {
+    let stamped = val(
+      stampIn(emptyBook(), { date: '2026-11-20', minute: 480 }, '2026-11-20T08:00:00.000Z'),
+    );
+    stamped = val(
+      stampOut(stamped, { date: '2026-11-20', minute: 960 }, '2026-11-20T16:00:00.000Z'),
+    );
+    const forge = (b: TimeBook, n: number, genTime: string) =>
+      val(
+        addAnchor(
+          b,
+          {
+            coveredN: n,
+            headHash: b.stamps[n - 1]!.hash,
+            evidence: evidenceFor(b.stamps[n - 1]!.hash, { genTime }),
+          },
+          genTime,
+        ),
+      );
+    const forged = forge(
+      forge(stamped, 1, '2026-11-20T08:01:00.000Z'),
+      2,
+      '2026-11-21T08:00:00.000Z',
+    );
+    expect(forged.anchors).toHaveLength(2);
+    const read = await readVerifiedBackup(exportBackup(forged), undefined);
+    expect(read).toEqual({
+      ok: true,
+      value: { ...forged, anchors: [] },
+      dropped: 2,
+      total: 2,
+    });
+    expect(anchorsDroppedText(2, 2)).toMatch(/2 von 2 .* entfernt\. Alle Zeiten wurden übernommen/);
+    const clean = await readVerifiedBackup(exportBackup(stamped), undefined);
+    expect(clean).toEqual({ ok: true, value: stamped, dropped: 0, total: 0 });
+    expect(anchorCheckNote(2)).toContain('2 externe Zeitstempel');
+  });
+
+  it('M1: a backup whose times were changed is still refused, anchors or not', async () => {
     const stamped = val(
       stampIn(emptyBook(), { date: '2026-11-20', minute: 480 }, '2026-11-20T08:00:00.000Z'),
     );
-    const head = stamped.stamps.at(-1)!;
-    const forged: TimeBook = val(
-      addAnchor(
-        stamped,
-        { coveredN: head.n, headHash: head.hash, evidence: evidenceFor(head.hash) },
-        '2026-11-20T16:00:00.000Z',
-      ),
-    );
-    const refused = await readVerifiedBackup(exportBackup(forged), undefined);
-    expect(refused).toEqual({
+    const o = JSON.parse(exportBackup(stamped));
+    o.days['2026-11-20'].startMin = 420;
+    expect(await readVerifiedBackup(JSON.stringify(o), undefined)).toEqual({
       ok: false,
-      reason: 'backup-anchor-unverified',
-      failed: 1,
-      total: 1,
+      reason: 'backup-days-mismatch',
     });
-    expect(REASON_TEXTS['backup-anchor-unverified']).toBeTruthy();
-    expect(anchorUnverifiedText(1, 1)).toContain('1 von 1');
-    const clean = await readVerifiedBackup(exportBackup(stamped), undefined);
-    expect(clean.ok).toBe(true);
-    expect(anchorCheckNote(2)).toContain('2 externe Zeitstempel');
   });
 });
