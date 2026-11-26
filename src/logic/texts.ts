@@ -191,6 +191,14 @@ export function clockWarningText(offsetMs: number): string | null {
   return `Die Uhr dieses Geräts geht ${amount} ${offsetMs < 0 ? 'vor' : 'nach'} – bitte die Uhrzeit des Geräts stellen.`;
 }
 
+/**
+ * The standing red banner after a failed background write of the vault (e.g. a full storage): the times
+ * may not be stored. `reason` is the vault's own text.
+ */
+export function unsavedText(reason: string): string {
+  return `Achtung: Speichern ist fehlgeschlagen (${reason}). Die erfassten Zeiten sind möglicherweise nicht gespeichert und könnten beim Neuladen fehlen. Bitte die App nicht schließen, eine Sicherung herunterladen und Speicherplatz freigeben (z. B. die Monatsdatei speichern).`;
+}
+
 /** The refused import of a backup whose external time stamps do not verify: how many, German. */
 export function anchorUnverifiedText(failed: number, total: number): string {
   return `${REASON_TEXTS['backup-anchor-unverified']} (${failed} von ${total} externen Zeitstempeln nicht bestätigt)`;

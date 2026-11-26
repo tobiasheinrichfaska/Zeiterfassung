@@ -52,6 +52,8 @@ export interface RunningPdfDeps {
   now: () => Date;
   /** Characters a slot may hold; `PDF_SLOT_LIMIT` unless a test sets it. */
   slotLimit?: number;
+  /** Characters all slots together may hold when a PDF is written; `VAULT_BUDGET` unless a test sets it. */
+  vaultBudget?: number;
 }
 
 class StampFailure extends Error {}
@@ -230,7 +232,7 @@ export async function updateRunningMonth(
   const problems: string[] = [];
   let tooLarge = false;
   const write = (next: Uint8Array): string | undefined => {
-    const refused = writePdfSlot(deps.vault, slot, next, deps.slotLimit);
+    const refused = writePdfSlot(deps.vault, slot, next, deps.slotLimit, deps.vaultBudget);
     if (refused === undefined) return undefined;
     if (typeof refused !== 'string') tooLarge = true;
     return refusalText(refused);

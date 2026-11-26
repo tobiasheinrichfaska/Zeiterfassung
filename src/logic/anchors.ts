@@ -1,5 +1,16 @@
-import { LIMITS, fail, ok, type Anchor, type Result, type TimeBook } from './model.ts';
-import { chainHead } from './stamps.ts';
+import {
+  LIMITS,
+  fail,
+  ok,
+  type Anchor,
+  type MonthKey,
+  type Result,
+  type Stamp,
+  type TimeBook,
+} from './model.ts';
+import { chainHead, stampsOfMonth } from './stamps.ts';
+import { exportCovers } from './retention.ts';
+import { monthIndex, monthOf } from './time.ts';
 import { isHash } from './sha256.ts';
 import { evidenceToken, hexToBase64Url, readEvidence, type Evidence } from './evidence.ts';
 
@@ -86,6 +97,7 @@ export function checkedEvidence(evidence: unknown, headHash: unknown): Evidence 
  * than what is covered, its evidence must pass `checkedEvidence` (strict form, the hash is that stamp's
  * hash, token within the size limit), and the time of the token must fit the device clock within the
  * tolerance (not long before the stamp it covers, not in the future). A refused anchor changes nothing.
+ * After adding, the anchors are thinned (`thinAnchors`); the new one, the newest, always stays.
  */
 export function addAnchor(book: TimeBook, anchor: Anchor, nowIso: string): Result<TimeBook> {
   if (book.anchors.length >= LIMITS.maxAnchors) return fail('too-many-anchors');
@@ -100,10 +112,65 @@ export function addAnchor(book: TimeBook, anchor: Anchor, nowIso: string): Resul
   if (gen < Date.parse(covered.at) - tolerance || gen > Date.parse(nowIso) + tolerance) {
     return fail('anchor-skew');
   }
-  return ok({
+  const added = {
     ...book,
     anchors: [...book.anchors, { coveredN: anchor.coveredN, headHash: anchor.headHash, evidence }],
-  });
+  };
+  // older anchors that nothing needs any more go (`thinAnchors`): the book stays small
+  return ok({ ...added, anchors: thinAnchors(added, nowIso) });
+}
+
+/**
+ * The anchors a month's report shows: for every given stamp the **first** anchor that covers it (the
+ * oldest with `coveredN >= n`; a later anchor covers the whole chain up to its own stamp, so this is the
+ * earliest proof for that stamp), plus the newest anchor **before** the first of the stamps (it shows the
+ * state of the chain before the month). Each anchor once, in the book's order (rising `coveredN`). No
+ * stamps: no anchors.
+ */
+export function anchorsForStamps(anchors: readonly Anchor[], stamps: readonly Stamp[]): Anchor[] {
+  if (stamps.length === 0) return [];
+  const pick = new Set<number>();
+  const first = Math.min(...stamps.map((s) => s.n));
+  let before = -1;
+  for (const [i, a] of anchors.entries()) if (a.coveredN < first) before = i;
+  if (before >= 0) pick.add(before);
+  for (const s of stamps) {
+    const i = anchors.findIndex((a) => a.coveredN >= s.n);
+    if (i >= 0) pick.add(i);
+  }
+  return anchors.filter((_, i) => pick.has(i));
+}
+
+const monthAt = (index: number): MonthKey =>
+  `${String(Math.floor(index / 12)).padStart(4, '0')}-${String((index % 12) + 1).padStart(2, '0')}`;
+
+/**
+ * Which anchors the book keeps (applied by `addAnchor`). A later anchor covers the whole chain up to its own
+ * stamp, so older ones only add how **early** a stamp existed. Kept are:
+ * 1. per calendar day of the token's time (UTC date of `genTime`) only the **newest** anchor of that day;
+ * 2. of those, only the ones a month still needs to show (`anchorsForStamps` over that month's stamps), for
+ *    the months with stamps that are the current or the previous month (UTC month of `nowIso`) or that an
+ *    export does not cover (never exported, or changed after the export): an exported month's anchors are
+ *    in its exported PDF;
+ * 3. always the newest anchor of all (it holds `coveredUpTo`, so the status never changes).
+ * Order is kept; nothing is added.
+ */
+export function thinAnchors(book: TimeBook, nowIso: string): Anchor[] {
+  const anchors = book.anchors;
+  if (anchors.length <= 1) return anchors;
+  const lastOfDay = new Map<string, number>();
+  for (const [i, a] of anchors.entries()) lastOfDay.set(a.evidence.genTime.slice(0, 10), i);
+  const newestOfDay = new Set(lastOfDay.values());
+  const daily = anchors.filter((_, i) => newestOfDay.has(i));
+  const now = monthIndex(monthOf(nowIso.slice(0, 10)));
+  const recent = new Set([monthAt(now), monthAt(now - 1)]);
+  const months = new Set(book.stamps.map((s) => monthOf(s.date)));
+  const keep = new Set<Anchor>([anchors[anchors.length - 1] as Anchor]);
+  for (const month of months) {
+    if (!recent.has(month) && exportCovers(book, month)) continue;
+    for (const a of anchorsForStamps(daily, stampsOfMonth(book, month))) keep.add(a);
+  }
+  return anchors.filter((a) => keep.has(a));
 }
 
 /** The answer of the stamping service for a hash (or why there is none). */

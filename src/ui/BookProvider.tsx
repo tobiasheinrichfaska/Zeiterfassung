@@ -9,6 +9,7 @@ import {
   type Result,
   type TimeBook,
 } from '../logic/index.ts';
+import { watchSaves } from '../io/saveWatch.ts';
 import { BookContext, type BookApi } from './bookContext.ts';
 import { styles } from './styles.ts';
 import { useLatest } from './useLatest.ts';
@@ -26,7 +27,10 @@ export function BookProvider({ vault, children }: { vault: Vault; children: Reac
   const latest = useLatest<TimeBook | undefined>(book);
   const getBook = latest.get as () => TimeBook;
 
-  useEffect(() => vault.onError(setError), [vault]);
+  // a write that failed after the fact (full storage …): a standing banner until the book is stored again
+  const [unsaved, setUnsaved] = useState<string | undefined>();
+  const [watch] = useState(() => watchSaves(vault, setUnsaved));
+  useEffect(() => watch.start(), [watch]);
 
   const apply = useCallback(
     (result: Result<TimeBook>): boolean => {
@@ -39,12 +43,13 @@ export function BookProvider({ vault, children }: { vault: Vault; children: Reac
         setError(refused);
         return false;
       }
+      watch.wrote();
       latest.set(result.value);
       setBook(result.value);
       setError(undefined);
       return true;
     },
-    [vault, latest],
+    [vault, latest, watch],
   );
 
   const api = useMemo<BookApi | undefined>(
@@ -56,10 +61,11 @@ export function BookProvider({ vault, children }: { vault: Vault; children: Reac
             getBook,
             apply,
             error,
+            unsaved,
             showError: setError,
             dismissError: () => setError(undefined),
           },
-    [book, getBook, apply, error],
+    [book, getBook, apply, error, unsaved],
   );
 
   if (loaded.kind === 'unreadable' || api === undefined) {

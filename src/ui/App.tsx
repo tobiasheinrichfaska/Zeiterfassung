@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { WheelNav } from 'rad-navi';
 import { useBookApi } from './bookContext.ts';
+import { unsavedText } from '../logic/index.ts';
 import { BackupPage } from './BackupPage.tsx';
 import { FormPage } from './FormPage.tsx';
 import { MonthPage } from './MonthPage.tsx';
@@ -23,9 +24,27 @@ const lastPage = createLastPageStore(() => localStorage, isPageNode);
 
 export function App() {
   const [start] = useState(() => lastPage.read());
-  const { error, dismissError } = useBookApi();
+  const { error, dismissError, unsaved } = useBookApi();
   return (
     <>
+      {unsaved && (
+        <div
+          role="alert"
+          style={{
+            ...styles.error,
+            position: 'fixed',
+            bottom: 8,
+            left: 8,
+            right: 8,
+            zIndex: Z.banner,
+            font: 'inherit',
+            background: '#b00020',
+            color: '#fff',
+          }}
+        >
+          {unsavedText(unsaved)}
+        </div>
+      )}
       {error && (
         <div
           role="alert"

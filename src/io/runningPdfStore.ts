@@ -1,6 +1,8 @@
 import type { Vault } from 'local-vault';
 import {
   RUNNING_PDF_TEXTS,
+  VAULT_SLOTS,
+  vaultFits,
   decodeRunningPdf,
   encodeRunningPdf,
   pdfFitsSlot,
@@ -26,19 +28,35 @@ export function readPdfSlot(vault: Pick<Vault, 'readSlot'>, slot: string): Runni
   }
 }
 
+/** Plain characters the other slots of the vault hold now (an unreadable slot counts as empty). */
+export function otherSlotsChars(vault: Pick<Vault, 'readSlot'>, slot: string): number {
+  let sum = 0;
+  for (const other of VAULT_SLOTS) {
+    if (other === slot) continue;
+    try {
+      sum += vault.readSlot(other)?.length ?? 0;
+    } catch {
+      // a slot the vault cannot open: its size is not known here
+    }
+  }
+  return sum;
+}
+
 /**
- * Writes a file into a slot, unless its text is longer than `PDF_SLOT_LIMIT` (the book has priority):
- * then nothing is written and `{ tooLarge: true }` comes back. Otherwise the vault's refusal text, or
- * undefined.
+ * Writes a file into a slot, unless its text is longer than `PDF_SLOT_LIMIT`, or the whole vault (the
+ * other slots plus this text) would pass `VAULT_BUDGET` (the book has priority): then nothing is written
+ * and `{ tooLarge: true }` comes back. Otherwise the vault's refusal text, or undefined.
  */
 export function writePdfSlot(
-  vault: Pick<Vault, 'writeSlot'>,
+  vault: Pick<Vault, 'writeSlot' | 'readSlot'>,
   slot: string,
   pdf: Uint8Array,
   limit?: number,
+  budget?: number,
 ): string | { tooLarge: true } | undefined {
   const text = encodeRunningPdf(pdf);
   if (!pdfFitsSlot(text, limit)) return { tooLarge: true };
+  if (!vaultFits(otherSlotsChars(vault, slot), text, budget)) return { tooLarge: true };
   return vault.writeSlot(slot, text);
 }
 

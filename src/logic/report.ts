@@ -3,7 +3,7 @@ import { changesOfMonth } from './changes.ts';
 import { monthSummary } from './summary.ts';
 import { formatClock, isDateKey, isMonthKey, monthOf } from './time.ts';
 import { canonicalJson, type Json } from './canonical.ts';
-import { anchorStatus, coveredUpTo, type AnchorStatus } from './anchors.ts';
+import { anchorStatus, anchorsForStamps, coveredUpTo, type AnchorStatus } from './anchors.ts';
 import { chainHead, skewedStamps, stampsOfMonth } from './stamps.ts';
 import type { Anchor, Stamp, StampBase } from './model.ts';
 
@@ -24,27 +24,6 @@ export interface TimestampSection {
   anchors: Anchor[];
   /** Set for a running PDF's day file: anchors up to this stamp number are in an earlier file already. */
   anchorsAfterN?: number;
-}
-
-/**
- * The anchors a month's report shows: for every given stamp the **first** anchor that covers it (the
- * oldest with `coveredN >= n`; a later anchor covers the whole chain up to its own stamp, so this is the
- * earliest proof for that stamp), plus the newest anchor **before** the first of the stamps (it shows the
- * state of the chain before the month). Each anchor once, in the book's order (rising `coveredN`). No
- * stamps: no anchors.
- */
-export function anchorsForStamps(anchors: readonly Anchor[], stamps: readonly Stamp[]): Anchor[] {
-  if (stamps.length === 0) return [];
-  const pick = new Set<number>();
-  const first = Math.min(...stamps.map((s) => s.n));
-  let before = -1;
-  for (const [i, a] of anchors.entries()) if (a.coveredN < first) before = i;
-  if (before >= 0) pick.add(before);
-  for (const s of stamps) {
-    const i = anchors.findIndex((a) => a.coveredN >= s.n);
-    if (i >= 0) pick.add(i);
-  }
-  return anchors.filter((_, i) => pick.has(i));
 }
 
 export function monthTimestamps(

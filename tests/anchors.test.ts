@@ -243,7 +243,8 @@ describe('anchors in the backup', () => {
   const b = book();
   const withAnchor = val(addAnchor(b, anchorFor(b, 1, { genTime: iso(20, 8, 2) }), iso(20, 8, 5)));
   const two = val(
-    addAnchor(withAnchor, anchorFor(b, 2, { genTime: iso(20, 16, 1) }), iso(20, 16, 5)),
+    // on the next day: two anchors of one day would be thinned to the newest (`thinAnchors`)
+    addAnchor(withAnchor, anchorFor(b, 2, { genTime: iso(21, 8, 1) }), iso(21, 8, 5)),
   );
   const edit = (f: (o: Record<string, any>) => void) => {
     const o = JSON.parse(exportBackup(two));

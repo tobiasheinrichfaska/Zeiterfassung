@@ -12,7 +12,7 @@ export function markExported(book: TimeBook, month: MonthKey, whenIso: string): 
  * Whether the export of a month still covers everything in it: nothing was recorded or changed in
  * that month after the export (a later change would be missing from the report that left the device).
  */
-function exportCovers(book: TimeBook, month: MonthKey): boolean {
+export function exportCovers(book: TimeBook, month: MonthKey): boolean {
   const exported = book.exportedMonths[month];
   if (exported === undefined) return false;
   const at = Date.parse(exported);
