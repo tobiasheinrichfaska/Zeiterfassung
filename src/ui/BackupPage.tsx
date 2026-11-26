@@ -1,6 +1,7 @@
 import { useState, type ChangeEvent } from 'react';
 import {
   BACKUP_CRYPTO,
+  anchorUnverifiedText,
   backupFileName,
   checkNewPassword,
   clockFromDate,
@@ -9,12 +10,12 @@ import {
   monthLabel,
   ok as okResult,
   purgeExpired,
-  readBackupFile,
   reasonText,
   replaceQuestion,
   retentionReport,
   sealBackup,
 } from '../logic/index.ts';
+import { readVerifiedBackup } from '../io/anchorCheck.ts';
 import { downloadFile, readFileText } from '../io/files.ts';
 import { useBookApi } from './bookContext.ts';
 import { useRunningPdf } from './runningPdfContext.ts';
@@ -81,13 +82,15 @@ export function BackupPage() {
   const restoreFrom = async (name: string, text: string, pw?: string) => {
     setBusy(true);
     try {
-      const read = await readBackupFile(text, pw);
+      const read = await readVerifiedBackup(text, pw);
       if (!read.ok) {
         if (read.reason === 'password-required') return setWaiting({ name, text });
         if (read.reason === 'wrong-password') setWaiting({ name, text });
-        return showError(
-          `Die Datei „${name}“ kann nicht eingespielt werden: ${reasonText(read.reason)}`,
-        );
+        const why =
+          read.reason === 'backup-anchor-unverified' && read.failed !== undefined
+            ? anchorUnverifiedText(read.failed, read.total ?? read.failed)
+            : reasonText(read.reason);
+        return showError(`Die Datei „${name}“ kann nicht eingespielt werden: ${why}`);
       }
       setWaiting(undefined);
       setRestorePassword('');

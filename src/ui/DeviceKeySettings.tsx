@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { DEVICE_KEY_TEXTS } from '../logic/index.ts';
+import { DEVICE_KEY_TEXTS, deviceKeyView } from '../logic/index.ts';
 import { useAnchoring } from './anchorContext.ts';
 import { useBookApi } from './bookContext.ts';
 import { styles } from './styles.ts';
@@ -15,6 +15,7 @@ export function DeviceKeySettings() {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const view = deviceKeyView(anchoring.deviceKeyId, anchoring.deviceKeyProblem);
 
   const enter = async () => {
     setBusy(true);
@@ -58,6 +59,7 @@ export function DeviceKeySettings() {
           : DEVICE_KEY_TEXTS.stored(anchoring.deviceKeyId)}
       </p>
       {anchoring.deviceKeyProblem && <p role="alert">{anchoring.deviceKeyProblem}</p>}
+      {view.note && <p role="status">{view.note}</p>}
       {note && <p role="status">{note}</p>}
       <label style={styles.label}>
         {anchoring.deviceKeyId === null
@@ -82,7 +84,7 @@ export function DeviceKeySettings() {
       <button type="submit" style={styles.button} disabled={busy || text.trim() === ''}>
         Schlüssel speichern
       </button>{' '}
-      {anchoring.deviceKeyId !== null && (
+      {view.canRemove && (
         <button type="button" style={styles.button} onClick={remove}>
           Schlüssel entfernen
         </button>

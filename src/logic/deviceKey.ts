@@ -95,4 +95,20 @@ export const DEVICE_KEY_TEXTS = {
   removed: 'Der Geräteschlüssel wurde entfernt. Das Gerät ist nicht mehr freigeschaltet.',
   unreadable:
     'Der gespeicherte Geräteschlüssel ist nicht lesbar. Bitte den Geräteschlüssel neu eingeben.',
+  unusableStored:
+    'Auf diesem Gerät liegt ein Geräteschlüssel, der nicht verwendet werden kann. Sie können ihn entfernen und einen neuen eingeben.',
 } as const;
+
+/**
+ * What the settings show for the stored device key: the key id (usable key), or a problem text (stored but
+ * unusable). A key that is stored in either way can be removed; only an empty slot cannot.
+ */
+export function deviceKeyView(
+  keyId: string | null,
+  problem: string | null,
+): { canRemove: boolean; note: string | null } {
+  return {
+    canRemove: keyId !== null || problem !== null,
+    note: keyId === null && problem !== null ? DEVICE_KEY_TEXTS.unusableStored : null,
+  };
+}

@@ -36,6 +36,8 @@ export const REASON_TEXTS: Record<Reason, string> = {
   'too-many-anchors': 'Es sind höchstens 400 externe Zeitstempel möglich.',
   'old-anchor-format':
     'Die Daten enthalten externe Zeitstempel in einem alten Format, das nicht mehr gelesen wird.',
+  'backup-anchor-unverified':
+    'Die Sicherung enthält externe Zeitstempel, die sich nicht prüfen lassen. Es wurde nichts ersetzt.',
   'bad-relay': 'Diese Adresse des Weiterreichers ist in dieser Fassung nicht erlaubt.',
   'bad-retention': 'Die Aufbewahrung muss zwischen 1 und 120 Monaten liegen.',
   'bad-origin': 'Die Herkunft des Eintrags ist unbekannt.',
@@ -187,4 +189,14 @@ export function clockWarningText(offsetMs: number): string | null {
       ? `${seconds} ${seconds === 1 ? 'Sekunde' : 'Sekunden'}`
       : `${Math.round(seconds / 60)} ${Math.round(seconds / 60) === 1 ? 'Minute' : 'Minuten'}`;
   return `Die Uhr dieses Geräts geht ${amount} ${offsetMs < 0 ? 'vor' : 'nach'} – bitte die Uhrzeit des Geräts stellen.`;
+}
+
+/** The refused import of a backup whose external time stamps do not verify: how many, German. */
+export function anchorUnverifiedText(failed: number, total: number): string {
+  return `${REASON_TEXTS['backup-anchor-unverified']} (${failed} von ${total} externen Zeitstempeln nicht bestätigt)`;
+}
+
+/** The red note on the month page when stored external time stamps fail the check. */
+export function anchorCheckNote(failed: number): string {
+  return `${failed === 1 ? 'Ein externer Zeitstempel' : `${failed} externe Zeitstempel`} dieses Geräts ${failed === 1 ? 'besteht' : 'bestehen'} die Prüfung nicht. Die Daten wurden möglicherweise verändert.`;
 }

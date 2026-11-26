@@ -61,7 +61,7 @@ export interface RelayOptions {
   monoNow?: () => number;
   /** The services the app trusts, in order of preference: id → PEM texts of the trust anchors. */
   trusted?: ReadonlyMap<string, { anchors: string[] }>;
-  /** Called with the relay's clock minus the device clock (ms) whenever the adapter learns a new offset. */
+  /** Called with the relay's clock minus the device clock (ms) when it moves by over 30 s, and with 0 when it is back within 30 s. */
   onClockOffset?: (offsetMs: number) => void;
 }
 
@@ -87,10 +87,47 @@ const BAD_RESPONSE_TEXTS: Record<string, string> = {
   evidence: 'Beleg nicht lesbar',
 };
 
+/**
+ * Reasons of `zeitstempel` that say the TOKEN did not verify (or could not be read): a real verification
+ * failure. Every other code the client reports (`bad-pem`, `bad-options`, `bad-services`, …) is the app's
+ * own setup being wrong.
+ */
+const TOKEN_REASONS = new Set([
+  ...Object.keys(VERIFY_TEXTS),
+  'too-large',
+  'indefinite-length',
+  'too-deep',
+  'trailing-bytes',
+  'bad-structure',
+  'rejected',
+  'no-token',
+  'not-signed-data',
+  'unsupported-version',
+  'bad-content-type',
+  'bad-tst-info',
+  'unsupported-hash',
+  'bad-time',
+  'nonce-mismatch',
+  'one-signer-required',
+  'signed-attributes-missing',
+  'signing-certificate-missing',
+  'signing-certificate-mismatch',
+  'tsa-mismatch',
+  'policy-mismatch',
+  'bad-certificate',
+  'weak-key',
+  'signer-certificate-missing',
+  'bad-eku',
+  'not-a-ca',
+  'chain-too-long',
+  'bad-evidence',
+  'evidence-hash-mismatch',
+]);
+
 const seconds = (ms: number) => Math.max(1, Math.ceil(ms / 1000));
 
 /** The client's failure (code, status, relay code) as the app's failure kind with a German detail. */
-function outcomeOf(failure: ClientFailure, pausedMs: number): AnchorOutcome {
+export function outcomeOf(failure: ClientFailure, pausedMs: number): AnchorOutcome {
   const no = (kind: AnchorFailure, text: string): AnchorOutcome => ({
     ok: false,
     reason: kind,
@@ -113,8 +150,6 @@ function outcomeOf(failure: ClientFailure, pausedMs: number): AnchorOutcome {
     case 'bad-key':
     case 'bad-key-id':
       return no('unauthorized', 'Schlüssel nicht verwendbar');
-    case 'bad-options':
-      return no('refused', `Einstellung ungültig (${failure.detail ?? ''})`);
     case 'relay-error': {
       const code = failure.status ?? 0;
       if (code === 401) return no('unauthorized', 'Status 401');
@@ -131,7 +166,13 @@ function outcomeOf(failure: ClientFailure, pausedMs: number): AnchorOutcome {
       return no('refused', status);
     }
     default:
-      return no('not-verified', VERIFY_TEXTS[failure.reason] ?? failure.reason);
+      if (TOKEN_REASONS.has(failure.reason)) {
+        return no('not-verified', VERIFY_TEXTS[failure.reason] ?? failure.reason);
+      }
+      return no(
+        'misconfigured',
+        failure.detail ? `${failure.reason}: ${failure.detail}` : failure.reason,
+      );
   }
 }
 
@@ -175,9 +216,11 @@ export function createRelayService(
     const relayMs = Date.parse(response.headers.get('Date') ?? '');
     if (!Number.isFinite(relayMs)) return;
     const offset = relayMs - wallNow();
-    if (Math.abs(offset - clockOffsetMs) > CLOCK_FIX_MS) {
-      clockOffsetMs = offset;
-      options.onClockOffset?.(offset);
+    // within 30 s of the relay's clock counts as „in agreement“ (0): that clears the warning again
+    const seen = Math.abs(offset) > CLOCK_FIX_MS ? offset : 0;
+    if (Math.abs(seen - clockOffsetMs) > CLOCK_FIX_MS || (seen === 0 && clockOffsetMs !== 0)) {
+      clockOffsetMs = seen;
+      options.onClockOffset?.(seen);
     }
   };
   const fetchLike: FetchLike = async (url, init) => {

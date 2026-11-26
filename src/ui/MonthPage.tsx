@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   LOG_NOTICE,
+  anchorCheckNote,
   anchorStatusText,
   evidenceSerial,
   formatIsoDateTime,
@@ -39,11 +40,13 @@ import { ClockWarning } from './ClockWarning.tsx';
 import { useRunningPdf } from './runningPdfContext.ts';
 import { useAskReason } from './promptContext.ts';
 import { pdfAssets } from './pdfAssets.ts';
+import { useAnchorCheck } from './useAnchorCheck.ts';
 import { styles } from './styles.ts';
 
 export function MonthPage() {
   const { book, getBook, apply, showError } = useBookApi();
   const anchoring = useAnchoring();
+  const failedAnchors = useAnchorCheck(book.anchors);
   const runningPdf = useRunningPdf();
   const askReason = useAskReason();
   const { drafts, setMonthDraft } = useDrafts();
@@ -286,6 +289,11 @@ export function MonthPage() {
           {anchorStatusText(anchoring.status)}
         </p>
         <ClockWarning />
+        {failedAnchors > 0 && (
+          <p role="alert" data-anchor-check="failed" style={{ ...styles.error, color: '#c62828' }}>
+            {anchorCheckNote(failedAnchors)}
+          </p>
+        )}
         {anchoring.needsKey && (
           <p role="alert" data-device-key="missing">
             {DEVICE_KEY_TEXTS.missing} Den Geräteschlüssel tragen Sie unter „Einstellungen“ ein.

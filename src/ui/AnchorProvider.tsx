@@ -35,23 +35,28 @@ export function AnchorProvider({ vault, children }: { vault: Vault; children: Re
   const [, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
   const running = useRef(false);
-  const [clockOffsetMs, setClockOffsetMs] = useState(0);
+  // the offset belongs to the service that learned it: a new service (other relay or key) starts at 0
+  const [clock, setClock] = useState<{ owner: object; ms: number } | null>(null);
   const [deviceKey, setDeviceKey] = useState<DeviceKeyLoad | { kind: 'loading' }>({
     kind: 'loading',
   });
   const relay = book.settings.timestampRelay;
   const relayAvailable = relayUsable(relay, ALLOWED_RELAYS);
   const key = deviceKey.kind === 'key' ? deviceKey.key : undefined;
-  const service = useMemo(
-    () =>
-      relayAvailable && key
-        ? createRelayService(relay, key, {
-            audience: audienceFor(relay),
-            onClockOffset: setClockOffsetMs,
-          })
-        : undefined,
-    [relayAvailable, relay, key],
-  );
+  const { service, owner } = useMemo(() => {
+    const own = {};
+    return {
+      owner: own,
+      service:
+        relayAvailable && key
+          ? createRelayService(relay, key, {
+              audience: audienceFor(relay),
+              onClockOffset: (ms: number) => setClock({ owner: own, ms }),
+            })
+          : undefined,
+    };
+  }, [relayAvailable, relay, key]);
+  const clockOffsetMs = clock?.owner === owner ? clock.ms : 0;
 
   useEffect(() => {
     let live = true;

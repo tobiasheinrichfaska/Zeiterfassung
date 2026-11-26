@@ -114,7 +114,9 @@ export type AnchorFailure =
   | 'rate-limited'
   | 'bad-response'
   | 'not-verified'
-  | 'unauthorized';
+  | 'unauthorized'
+  /** The app's own time stamp setup is wrong (trust anchors, services, client options), not the token. */
+  | 'misconfigured';
 
 /**
  * What a verified answer gives: the evidence of `zeitstempel/client` (its time is that of the checked
@@ -135,6 +137,7 @@ export const ANCHOR_FAILURE_TEXTS: Record<AnchorFailure, string> = {
   'bad-response': 'Die Antwort des Zeitstempeldienstes ist ungültig.',
   'not-verified': 'Das Token des Zeitstempeldienstes hat die Prüfung nicht bestanden.',
   unauthorized: 'Geräteschlüssel wird vom Zeitstempeldienst nicht angenommen.',
+  misconfigured: 'Die Zeitstempel-Einrichtung dieses Builds ist fehlerhaft.',
 };
 
 /** Standard Base64 with padding. */
