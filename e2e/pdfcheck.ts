@@ -17,23 +17,54 @@ for (const file of readdirSync(OUT).filter(
   (f) => f.endsWith('.pdf') && f.includes('zeiterfassung'),
 )) {
   const { streams } = await inspect(new Uint8Array(readFileSync(OUT + file)));
-  const json = JSON.parse(streams.embedded[0]?.text ?? 'null');
-  const ts = json?.timestamps;
-  console.log(`\n${file}: ${ts?.anchors?.length ?? '?'} anchors, status ${ts?.status?.state}`);
+  type Shown = { coveredN: number; headHash: string; evidence?: { token?: string; hash?: string } };
+  // every attached JSON file with a time stamp section (a running monthly PDF has one per day)
+  const sections = streams.embedded
+    .map((e) => {
+      try {
+        return (
+          JSON.parse(e.text) as { timestamps?: { anchors?: Shown[]; status?: { state?: string } } }
+        ).timestamps;
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((t) => t !== undefined);
+  const anchors: Shown[] = sections.flatMap((t) => t.anchors ?? []);
+  console.log(
+    `\n${file}: ${sections.length} attachment(s), ${anchors.length} anchors, status ${sections.at(-1)?.status?.state}`,
+  );
   const lines = streams.shown.split('\n');
   const from = lines.findIndex((l) => l.startsWith('Zeitstempel'));
   console.log(lines.slice(from, from + 14).join('\n'));
   check(
-    `${file}: JSON has anchors with serial`,
-    Array.isArray(ts?.anchors) &&
-      ts.anchors.every((a: { serial?: string }) => /^[0-9a-f]+$/.test(a.serial ?? '')),
+    `${file}: JSON has anchors with evidence (format v1)`,
+    sections.length > 0 &&
+      sections.every((t) => Array.isArray(t.anchors)) &&
+      anchors.every(
+        (a) =>
+          typeof a.evidence?.token === 'string' &&
+          // the evidence's hash (base64url) is the anchor's headHash
+          Buffer.from(a.evidence.hash ?? '', 'base64url').toString('hex') === a.headHash,
+      ),
   );
-  check(
-    `${file}: PDF names the serial`,
-    (ts?.anchors ?? []).every((a: { serial: string }) => streams.shown.includes(a.serial)),
-  );
-  for (const a of ts?.anchors ?? []) {
-    writeFileSync(PKI + 'a.token', Buffer.from(a.token, 'base64'));
+  for (const a of anchors) {
+    writeFileSync(PKI + 'a.token', Buffer.from(a.evidence?.token ?? '', 'base64url'));
+    // the serial as openssl reads it from the token (independent of the app's reader)
+    const text = spawnSync(
+      'openssl',
+      ['ts', '-reply', '-in', PKI + 'a.token', '-token_in', '-text'],
+      {
+        encoding: 'utf8',
+      },
+    );
+    const serial =
+      /Serial number: (?:0x)?([0-9A-Fa-f]+)/.exec(text.stdout)?.[1]?.toLowerCase() ?? '';
+    check(
+      `${file}: PDF names the serial of anchor up to stamp ${a.coveredN}`,
+      serial !== '' && streams.shown.toLowerCase().includes(serial.replace(/^0+(?=.)/, '')),
+      serial || text.stderr.trim(),
+    );
     const r = spawnSync(
       'openssl',
       [
@@ -53,7 +84,7 @@ for (const file of readdirSync(OUT).filter(
       { encoding: 'utf8' },
     );
     check(
-      `${file}: openssl verifies anchor up to stamp ${a.coveredN} (serial ${a.serial})`,
+      `${file}: openssl verifies anchor up to stamp ${a.coveredN} (serial ${serial})`,
       r.status === 0,
       (r.stdout + r.stderr).trim(),
     );
