@@ -209,8 +209,9 @@ npm run build
   not covered by an export still need, always the newest). `VAULT_BUDGET` 3,500,000 plain characters over all slots
   (a running-PDF write past it forces the save); a failed background write shows a standing red banner
   (`src/io/saveWatch.ts`). JSON attachment version 4 (`recordedAt`, `contentHash` per day; recompute recipe in
-  `docs/data-model.html`). e2e after the fixes: stamping 51/51, running PDF 53/53; `retention.cjs` and
-  `pdfcheck.ts` not rerun (`pdfcheck.ts` still expects the old anchor `serial` field).
+  `docs/data-model.html`). e2e after the fixes and the switch to trust per service (`07f4c32`,
+  2026-11-26): stamping 51/51, running PDF 53/53, retention 17/17, `pdfcheck.ts` 15/15 (reads anchors as evidence
+  v1 from every attachment, every token `openssl ts -verify` OK).
 - One working day per date: a split shift (morning and evening) cannot be recorded as two shifts; use one
   day with a long pause.
 - The stamp clock trusts the device clock. Nothing proves the time (a later stage adds timestamps from a

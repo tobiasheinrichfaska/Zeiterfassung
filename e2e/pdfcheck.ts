@@ -60,11 +60,16 @@ for (const file of readdirSync(OUT).filter(
     );
     const serial =
       /Serial number: (?:0x)?([0-9A-Fa-f]+)/.exec(text.stdout)?.[1]?.toLowerCase() ?? '';
-    check(
-      `${file}: PDF names the serial of anchor up to stamp ${a.coveredN}`,
-      serial !== '' && streams.shown.toLowerCase().includes(serial.replace(/^0+(?=.)/, '')),
-      serial || text.stderr.trim(),
-    );
+    // the monthly report prints a „Zeitstempel“ section with the serial; the running monthly PDF's
+    // day pages print the table only (its anchors are in the attachments and the document time stamps)
+    if (from >= 0) {
+      check(
+        `${file}: PDF names the serial of anchor up to stamp ${a.coveredN}`,
+        serial !== '' && streams.shown.toLowerCase().includes(serial.replace(/^0+(?=.)/, '')),
+        serial || text.stderr.trim(),
+      );
+    } else
+      check(`${file}: openssl reads the serial of anchor up to stamp ${a.coveredN}`, serial !== '');
     const r = spawnSync(
       'openssl',
       [
