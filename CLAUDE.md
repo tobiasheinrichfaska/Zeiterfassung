@@ -42,9 +42,10 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
   from the build variable `VITE_TIMESTAMP_AUDIENCE` (default: the relay origin). **Every stamp `mode: 'solo'`**; the
   running PDF takes only `kind: 'single'` evidence (a batched token stamps the batch root, not the PDF digest).
 - **Device key (decision Tobias 2026-11-25):** one key per device; a device is unlocked by pasting
-  `<kid>.<private key>` (`make-key --solo` of `zeitstempel`) in the settings; stored encrypted in the vault slot
-  `geraeteschluessel`, imported as a non-extractable P-256 key, never in plain storage or the backup; only the
-  kid is shown. Without a key: „Gerät nicht freigeschaltet“; recording times always works. Keys are created in
+  `<kid>.<private key>` (`make-key --solo` of `zeitstempel`) in the settings; imported as a non-extractable P-256
+  CryptoKey kept in IndexedDB `zeiterfassung-geraeteschluessel` (`src/io/keyStore.ts`); the vault slot `geraeteschluessel`
+  holds only `kid:<kennung>`; the pasted text is never stored (an old text slot is migrated once on load); never in
+  the backup; only the kid is shown. Without a key: „Gerät nicht freigeschaltet“; recording times always works. Keys are created in
   the project for now (`docs/geraeteschluessel.md`); a key server may follow.
 - **`pdf-fortschreiben` is pinned to commit `752a60a`** (no tag yet; same TEMPORARY rule as `zeitstempel`
   had): switch to `github:tobiasheinrichfaska/pdf-fortschreiben#<tag>` once Tobias approves a tag with a build.
@@ -189,12 +190,21 @@ npm run build
   for all services, so a token of any shipped service passes under any service id still offered. e2e needs
   `faketime`, `NODE24` and `ZEITSTEMPEL_DIR` (51/51 stamping, 53/53 running PDF, 17/17 retention on 2026-11-25).
 - **Audit loop fixes (2026-11-26):** anchors are verified in the I/O layer (`src/io/anchorCheck.ts`, `verifyEvidence`
-  against all shipped anchors): a backup import is refused with `backup-anchor-unverified` („N von M“), a stored anchor
+  against all shipped anchors): unverifiable anchors of a backup are dropped (times kept, count shown before and after), days that do not
+  match the stamp chain refuse the import (`backup-days-mismatch`; on load a red note, `checkDaysAgainstChain`), a stored anchor
   that fails shows a red note on the month page (start is not blocked); the logic layer still checks only the form.
   `AnchorFailure` has the kind `misconfigured` (the build's own stamp setup is broken, e.g. `bad-pem`); an unusable
   stored device key can be removed (`deviceKeyView`); the clock warning clears when the clock agrees again. Earlier
   in the loop: a compacted book with an anchor exactly on `stampBase.n` reads back; a day entered late does not cut
   the running PDF's newest state. Not run in a browser.
+- **Opus audit fixes (2026-11-26):** reports list only the month's anchors (`anchorsForStamps`: the first anchor
+  covering each stamp plus the newest before the month); a running-PDF day file lists only anchors after
+  `timestamps.anchorsAfterN`. Anchors are thinned on every add (`thinAnchors`: newest per UTC day, only those months
+  not covered by an export still need, always the newest). `VAULT_BUDGET` 3,500,000 plain characters over all slots
+  (a running-PDF write past it forces the save); a failed background write shows a standing red banner
+  (`src/io/saveWatch.ts`). JSON attachment version 4 (`recordedAt`, `contentHash` per day; recompute recipe in
+  `docs/data-model.html`). e2e after the fixes: stamping 51/51, running PDF 53/53; `retention.cjs` and
+  `pdfcheck.ts` not rerun (`pdfcheck.ts` still expects the old anchor `serial` field).
 - One working day per date: a split shift (morning and evening) cannot be recorded as two shifts; use one
   day with a long pause.
 - The stamp clock trusts the device clock. Nothing proves the time (a later stage adds timestamps from a
