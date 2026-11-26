@@ -154,6 +154,79 @@ describe('checkCsp', () => {
   });
 });
 
+describe('policy parsing and unknown directives', () => {
+  const good = addCsp(fixture);
+
+  it('parsePolicy keeps the FIRST of a repeated directive, as browsers do', () => {
+    const twice = good.replace("default-src 'none'", "default-src 'none'; default-src *");
+    expect(parsePolicy(twice).get('default-src')).toEqual(["'none'"]);
+    const first = good.replace("default-src 'none'", "default-src *; default-src 'none'");
+    expect(parsePolicy(first).get('default-src')).toEqual(['*']);
+  });
+
+  it('checkCsp reports a repeated directive', () => {
+    const twice = good.replace("default-src 'none'", "default-src 'none'; default-src 'none'");
+    expect(checkCsp(twice).problems.join()).toMatch(/default-src is repeated/);
+    expect(checkCsp(good).ok).toBe(true);
+  });
+
+  it('checkCsp reports a directive outside the documented set', () => {
+    const extra = good.replace("default-src 'none'", "default-src 'none'; media-src 'none'");
+    expect(checkCsp(extra).problems.join()).toMatch(/Unknown directive media-src/);
+    const sandbox = good.replace("default-src 'none'", "default-src 'none'; Report-To x");
+    expect(checkCsp(sandbox).ok).toBe(false);
+  });
+});
+
+describe('comments and tag case', () => {
+  const js = 'console.log(1);';
+
+  it('a policy or script inside an HTML comment does not count', () => {
+    const commented = page(
+      `<script>${js}</script><!-- <script src="x.js"></script><meta http-equiv="Content-Security-Policy" content="x"> -->`,
+    );
+    const out = addCsp(commented);
+    expect(checkCsp(out).problems).toEqual([]);
+    expect(policyOf(out)).toContain(`script-src ${hash(js)}`);
+  });
+
+  it('a comment that mentions an external script does not make the page fail', () => {
+    const out = addCsp(page(`<script>${js}</script><!-- <img src="http://a/b.png"> -->`));
+    expect(checkCsp(out).ok).toBe(true);
+  });
+
+  it('an inline script is not a comment, and a comment-like text in code stays code', () => {
+    const code = 'const a = "<!--";';
+    const out = addCsp(page(`<script>${code}</script><script>${js}</script>`));
+    expect(policyOf(out)).toContain(`${hash(code)} ${hash(js)}`);
+    expect(checkCsp(out).problems).toEqual([]);
+  });
+
+  it('addCsp does not insert into a comment', () => {
+    const html = `<!doctype html><html><head><!-- <meta charset="UTF-8" /> --></head><body><script>${js}</script></body></html>`;
+    expect(() => addCsp(html)).toThrow(/charset/);
+    const both = `<!doctype html><html><head><!-- <meta charset="UTF-8" /> --><meta charset="UTF-8" /></head><body><script>${js}</script></body></html>`;
+    const out = addCsp(both);
+    expect(out.indexOf('Content-Security-Policy')).toBeGreaterThan(out.indexOf('--><meta'));
+    expect(checkCsp(out).ok).toBe(true);
+  });
+
+  it('tags are matched whatever their case', () => {
+    const upper = `<!doctype html><html><head><META charset="UTF-8" /></head><body><SCRIPT>${js}</SCRIPT></body></html>`;
+    const out = addCsp(upper);
+    expect(policyOf(out)).toContain(`script-src ${hash(js)}`);
+    expect(checkCsp(out).problems).toEqual([]);
+    expect(() => addCsp(page('<SCRIPT SRC="x.js"></SCRIPT>'))).toThrow(/outside/);
+    expect(() =>
+      addCsp(
+        page(`<script>${js}</script>`, '<META HTTP-EQUIV="Content-Security-Policy" content="x">'),
+      ),
+    ).toThrow(/already/);
+    expect(checkCsp(out.replace('</body>', '<SCRIPT SRC="x.js"></SCRIPT></body>')).ok).toBe(false);
+    expect(checkCsp(out.replace('</body>', '<SCRIPT>evil()</SCRIPT></body>')).ok).toBe(false);
+  });
+});
+
 describe('singleFileCsp (Vite plugin)', () => {
   it('writes the policy into the written html file only', () => {
     const dir = mkdtempSync(join(tmpdir(), 'einzeldatei-csp-'));

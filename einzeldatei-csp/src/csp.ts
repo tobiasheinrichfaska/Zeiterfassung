@@ -4,10 +4,26 @@
 // hash, computed over the finished file. Pure functions over text; Node only (`node:crypto`), no network.
 import { createHash } from 'node:crypto';
 
-const SCRIPT = /<script\b([^>]*)>([\s\S]*?)<\/script>/g;
-const STYLE = /<style\b([^>]*)>([\s\S]*?)<\/style>/g;
+const SCRIPT = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+const STYLE = /<style\b([^>]*)>([\s\S]*?)<\/style>/gi;
 const CHARSET = /<meta charset="UTF-8" \/>|<meta charset="utf-8">/i;
 const POLICY_META = /<meta[^>]+http-equiv=["']?Content-Security-Policy/i;
+const RAW_TEXT = /<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/iy;
+
+/** The directives `cspFor` writes: the documented default set. Any other directive is a problem. */
+export const KNOWN_DIRECTIVES: readonly string[] = [
+  'default-src',
+  'script-src',
+  'style-src',
+  'img-src',
+  'font-src',
+  'connect-src',
+  'worker-src',
+  'frame-src',
+  'object-src',
+  'base-uri',
+  'form-action',
+];
 
 export type CspOptions = {
   /** Origins `connect-src` allows (e.g. `https://relay.example`). None → `'none'`. */
@@ -43,6 +59,36 @@ export function cspFor(
   ].join('; ');
 }
 
+/**
+ * The page with the content of every HTML comment blanked out (same length, so positions stay valid).
+ * Bodies of `<script>` and `<style>` are opaque: a `<!--` inside code is code, not a comment.
+ */
+function maskComments(html: string): string {
+  let out = '';
+  let i = 0;
+  while (i < html.length) {
+    if (html.startsWith('<!--', i)) {
+      const close = html.indexOf('-->', i + 4);
+      const end = close < 0 ? html.length : close + 3;
+      out += html.slice(i, end).replace(/[^\n]/g, ' ');
+      i = end;
+      continue;
+    }
+    if (html[i] === '<') {
+      RAW_TEXT.lastIndex = i;
+      const raw = RAW_TEXT.exec(html);
+      if (raw) {
+        out += raw[0];
+        i += raw[0].length;
+        continue;
+      }
+    }
+    out += html[i];
+    i += 1;
+  }
+  return out;
+}
+
 /** The page's own markup: the bundled code may mention tags as text, so script bodies are emptied. */
 function markupOf(html: string): string {
   return html.replace(SCRIPT, (_all, attrs: string) => `<script${attrs}></script>`);
@@ -52,7 +98,8 @@ function markupOf(html: string): string {
  * Inserts the policy as the first element after `<meta charset>`. Throws on a page that loads a script
  * or stylesheet from outside, already carries a policy, has no inline script or has no `<meta charset>`.
  */
-export function addCsp(html: string, options: CspOptions = {}): string {
+export function addCsp(source: string, options: CspOptions = {}): string {
+  const html = maskComments(source);
   const markup = markupOf(html);
   if (POLICY_META.test(markup)) throw new Error('The page already has a Content-Security-Policy');
   if (/<link\b[^>]*rel=["']?stylesheet/i.test(markup)) {
@@ -73,20 +120,31 @@ export function addCsp(html: string, options: CspOptions = {}): string {
   if (!charset) throw new Error('The page has no <meta charset>');
   const at = charset.index + charset[0].length;
   const tag = `\n    <meta http-equiv="Content-Security-Policy" content="${policy}" />`;
-  return html.slice(0, at) + tag + html.slice(at);
+  return source.slice(0, at) + tag + source.slice(at);
 }
 
 export type CspCheck = { ok: boolean; problems: string[] };
 
-/** The policy of a page as directive → sources (empty when there is none). */
-export function parsePolicy(html: string): Map<string, string[]> {
-  const content = /http-equiv="Content-Security-Policy" content="([^"]*)"/.exec(html)?.[1] ?? '';
-  const out = new Map<string, string[]>();
+function readPolicy(source: string): { map: Map<string, string[]>; duplicates: string[] } {
+  const markup = markupOf(maskComments(source));
+  const meta = /<meta\b[^>]*http-equiv=["']?Content-Security-Policy[^>]*>/i.exec(markup)?.[0] ?? '';
+  const content = /\bcontent="([^"]*)"/i.exec(meta)?.[1] ?? '';
+  const map = new Map<string, string[]>();
+  const duplicates: string[] = [];
   for (const part of content.split(';')) {
-    const [name, ...sources] = part.trim().split(/\s+/);
-    if (name) out.set(name, sources);
+    const [rawName, ...sources] = part.trim().split(/\s+/);
+    if (!rawName) continue;
+    const name = rawName.toLowerCase();
+    // a browser uses the FIRST of a repeated directive and ignores the rest
+    if (map.has(name)) duplicates.push(name);
+    else map.set(name, sources);
   }
-  return out;
+  return { map, duplicates };
+}
+
+/** The policy of a page as directive → sources (empty when there is none). The first of a repeated directive counts. */
+export function parsePolicy(html: string): Map<string, string[]> {
+  return readPolicy(html).map;
 }
 
 const same = (a: readonly string[], b: readonly string[]) =>
@@ -98,15 +156,20 @@ const same = (a: readonly string[], b: readonly string[]) =>
  * wildcard source; nothing loaded from outside (script/link/img/iframe/… with an address). With
  * `connectOrigins` given, `connect-src` must be exactly that list (none → `'none'`).
  */
-export function checkCsp(html: string, options: CspOptions = {}): CspCheck {
+export function checkCsp(source: string, options: CspOptions = {}): CspCheck {
   const problems: string[] = [];
+  const html = maskComments(source);
   const markup = markupOf(html);
-  const metas = html.match(/Content-Security-Policy/g) ?? [];
+  const metas = html.match(/Content-Security-Policy/gi) ?? [];
   if (metas.length !== 1) problems.push(`Expected exactly one policy, found ${metas.length}`);
-  const policy = parsePolicy(html);
+  const { map: policy, duplicates } = readPolicy(source);
   if (policy.size === 0) problems.push('No Content-Security-Policy meta tag');
-  const firstScript = html.indexOf('<script');
-  const at = html.indexOf('Content-Security-Policy');
+  for (const name of new Set(duplicates)) problems.push(`The directive ${name} is repeated`);
+  for (const name of policy.keys()) {
+    if (!KNOWN_DIRECTIVES.includes(name)) problems.push(`Unknown directive ${name}`);
+  }
+  const firstScript = html.search(/<script\b/i);
+  const at = html.search(/Content-Security-Policy/i);
   if (at >= 0 && firstScript >= 0 && at > firstScript) {
     problems.push('The policy comes after the first script');
   }
@@ -146,7 +209,7 @@ export function checkCsp(html: string, options: CspOptions = {}): CspCheck {
     problems.push('The policy allows an unsafe or wildcard source');
   }
 
-  if (/<script[^>]*\bsrc=/i.test(markup)) problems.push('The page loads a script from outside');
+  if (/<script[^>]*\bsrc\s*=/i.test(markup)) problems.push('The page loads a script from outside');
   if (/<link[^>]*rel=["']?stylesheet/i.test(markup)) {
     problems.push('The page loads a stylesheet from outside');
   }
