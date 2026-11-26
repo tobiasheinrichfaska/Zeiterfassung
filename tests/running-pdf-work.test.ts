@@ -22,11 +22,11 @@ import { createAppVault, vaultConfig } from '../src/ui/vault.ts';
 import { bookWith, day, evidenceFor, val } from './helpers.ts';
 import { ASSETS } from './pdfAssets.ts';
 
-/** A stand-in token of `size` bytes: one DER OCTET STRING (checks the plumbing, proves nothing). */
+/** A stand-in token of `size` bytes: one DER SEQUENCE (checks the plumbing, proves nothing). */
 function token(size: number): Uint8Array {
   const body = size - 4;
   const t = new Uint8Array(size);
-  t.set([0x04, 0x82, body >> 8, body & 255]);
+  t.set([0x30, 0x82, body >> 8, body & 255]);
   return t;
 }
 

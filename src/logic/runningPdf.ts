@@ -6,37 +6,36 @@
  * with its own name (add only). The bytes before a revision never change. The document time stamp
  * after each day is the caller's: `appendDocTimeStamp` of `pdf-fortschreiben` (no network here).
  *
- * Technique: pdf-lib loads the file and draws the new page (with its own font subset); from pdf-lib's
- * context only the **new** objects (numbers from the file's `/Size` on) and the **changed page-tree
- * nodes** are taken, serialized by pdf-lib and appended by `pdf-fortschreiben` as raw objects of one
- * update, together with the attachment. Nothing else pdf-lib may have touched (e.g. `/Info`) is copied.
+ * Technique: `prepareDrawnPages` of `pdf-fortschreiben/pdflib` loads the file with pdf-lib, lets the app
+ * draw the new page(s) with the font of the first revision (`reuseFont`) and returns one open update with
+ * only the **new** objects and the **changed page-tree nodes** (anything else pdf-lib changed is refused,
+ * `/Info` is never copied); the attachment is added to that same update before it is written.
  */
 import fontkit from '@pdf-lib/fontkit';
 import {
   CustomFontEmbedder,
   PDFDict,
   PDFDocument,
-  PDFFont,
   PDFHexString,
   PDFName,
   PDFString,
-  type PDFObject,
+  type PDFFont,
 } from 'pdf-lib';
 import {
   PdfFile,
   PdfReadError,
-  Update,
   attachFile,
   attachmentChanges,
   findDocTimeStamps,
   isName,
   name as pdfName,
-  raw,
   readAttachments,
+  ref,
   writeUpdate,
   type AttachmentChange,
   type PdfStream,
 } from 'pdf-fortschreiben';
+import { prepareDrawnPages, reuseFont } from 'pdf-fortschreiben/pdflib';
 import { fail, ok, type DateKey, type MonthKey, type Result, type TimeBook } from './model.ts';
 import { canonicalJson } from './canonical.ts';
 import { changeText, changesOfMonth } from './changes.ts';
@@ -77,21 +76,18 @@ const SHARED_FONT = 'NotoSans-Regular';
 
 /**
  * The shared font of a loaded running PDF as a pdf-lib font that draws with the file's font object and is
- * never embedded again (it is not registered with the document). Undefined in a file without it.
+ * never embedded again (`reuseFont`). Undefined in a file without it; the match must be the Type0 font
+ * (not its descendant, which carries the same `/BaseFont`).
  */
 async function sharedFont(doc: PDFDocument, assets: PdfAssets): Promise<PDFFont | undefined> {
-  for (const [ref, o] of doc.context.enumerateIndirectObjects()) {
-    if (
-      o instanceof PDFDict &&
-      o.get(PDFName.of('Type')) === PDFName.of('Font') &&
-      o.get(PDFName.of('Subtype')) === PDFName.of('Type0') &&
-      o.get(PDFName.of('BaseFont')) === PDFName.of(SHARED_FONT)
-    ) {
-      const embedder = await CustomFontEmbedder.for(fontkit, assets.fontRegular, SHARED_FONT);
-      return PDFFont.of(ref, doc, embedder);
-    }
-  }
-  return undefined;
+  const font = await reuseFont(doc, SHARED_FONT, () =>
+    CustomFontEmbedder.for(fontkit, assets.fontRegular, SHARED_FONT),
+  );
+  if (font === undefined) return undefined;
+  const dict = doc.context.lookup(font.ref);
+  if (!(dict instanceof PDFDict) || dict.get(PDFName.of('Subtype')) !== PDFName.of('Type0'))
+    throw new Error('shared font is not a Type0 font');
+  return font;
 }
 
 /**
@@ -287,25 +283,8 @@ async function readRunning(
   return { month, days: days.filter((d) => d.startsWith(`${month}-`)).sort(), anchorsN };
 }
 
-const latin1 = (bytes: Uint8Array): string => {
-  let out = '';
-  for (let i = 0; i < bytes.length; i += 8192)
-    out += String.fromCharCode(...bytes.subarray(i, i + 8192));
-  return out;
-};
-
-/** The bytes pdf-lib writes for an object (between `n 0 obj` and `endobj`). */
-function serialize(o: PDFObject): string {
-  const buffer = new Uint8Array(o.sizeInBytes());
-  o.copyBytesInto(buffer, 0);
-  return latin1(buffer);
-}
-
 const isStream = (o: unknown): o is PdfStream =>
   typeof o === 'object' && o !== null && (o as { t?: unknown }).t === 'stream';
-
-const isPagesNode = (o: PDFObject): o is PDFDict =>
-  o instanceof PDFDict && o.get(PDFName.of('Type')) === PDFName.of('Pages');
 
 function openFile(pdf: Uint8Array): PdfFile | null {
   try {
@@ -354,70 +333,38 @@ export async function appendRunningDay(
   const hash = sha256Hex(json.value);
   const layout = runningDayLayout(book, date, modified, hash, upTo);
 
-  let doc: PDFDocument;
+  const data = new TextEncoder().encode(json.value);
+  let deflated: Uint8Array | undefined;
   try {
-    doc = await PDFDocument.load(pdf, { updateMetadata: false });
-  } catch {
-    return fail('bad-pdf');
-  }
-  const { context } = doc;
-  const oldSize = file.size;
-  // new objects must get exactly the numbers the update will give them
-  if (context.largestObjectNumber >= oldSize) return fail('pdf-append-failed');
-  context.largestObjectNumber = oldSize - 1;
-  const treeBefore = new Map<number, string>();
-  for (const [r, o] of context.enumerateIndirectObjects())
-    if (isPagesNode(o)) treeBefore.set(r.objectNumber, serialize(o));
+    const drawn = await prepareDrawnPages(pdf, async (doc) => {
+      deflated = doc.context.flateStream(data).getContents();
+      const font = await dayFont(doc, assets, Number(date.slice(8, 10)));
+      const w = pageWriter(doc, font, font);
+      w.newPage();
+      w.title(layout.title);
+      if (layout.employee) {
+        w.line(`Mitarbeiter/in: ${layout.employee}`, 10);
+        w.gap(2);
+      }
+      w.gap(6);
+      w.table(layout.header, layout.rows);
+      w.gap(8);
+      w.line(layout.total, 11);
+      w.gap(4);
+      if (layout.openNote) w.line(layout.openNote);
+      w.changes('Nachträgliche Änderungen', layout.changes);
+      w.gap(10);
+      w.ensure(48);
+      w.paragraph(layout.attachmentNote, 8);
+      w.line(layout.hashLine, 8);
+      w.line(layout.created, 8);
+      const stand = dateLabel(upTo);
+      w.footers((i, n) => `Stand ${stand}, Seite ${i + 1} von ${n}`);
+    });
 
-  const font = await dayFont(doc, assets, Number(date.slice(8, 10)));
-  const w = pageWriter(doc, font, font);
-  w.newPage();
-  w.title(layout.title);
-  if (layout.employee) {
-    w.line(`Mitarbeiter/in: ${layout.employee}`, 10);
-    w.gap(2);
-  }
-  w.gap(6);
-  w.table(layout.header, layout.rows);
-  w.gap(8);
-  w.line(layout.total, 11);
-  w.gap(4);
-  if (layout.openNote) w.line(layout.openNote);
-  w.changes('Nachträgliche Änderungen', layout.changes);
-  w.gap(10);
-  w.ensure(48);
-  w.paragraph(layout.attachmentNote, 8);
-  w.line(layout.hashLine, 8);
-  w.line(layout.created, 8);
-  const stand = dateLabel(upTo);
-  w.footers((i, n) => `Stand ${stand}, Seite ${i + 1} von ${n}`);
-  await doc.flush();
-
-  const update = new Update(file);
-  const fresh = context
-    .enumerateIndirectObjects()
-    .filter(([r]) => r.objectNumber >= oldSize)
-    .sort(([a], [b]) => a.objectNumber - b.objectNumber);
-  for (const [r, o] of fresh) {
-    if (r.generationNumber !== 0) return fail('pdf-append-failed');
-    const added = update.add(raw(serialize(o)));
-    if (added.num !== r.objectNumber) return fail('pdf-append-failed');
-  }
-  let treeChanged = 0;
-  for (const [r, o] of context.enumerateIndirectObjects()) {
-    const before = treeBefore.get(r.objectNumber);
-    if (before === undefined || !isPagesNode(o)) continue;
-    const now = serialize(o);
-    if (now === before) continue;
-    update.set({ t: 'ref', num: r.objectNumber, gen: 0 }, raw(now));
-    treeChanged += 1;
-  }
-  if (treeChanged === 0) return fail('pdf-append-failed');
-
-  try {
-    const data = new TextEncoder().encode(json.value);
+    const { update } = drawn;
     const before = new Set(update.objects.keys());
-    attachFile(file, update, {
+    attachFile(drawn.file, update, {
       name: runningDayName(date),
       data,
       mimeType: 'application/json',
@@ -427,23 +374,24 @@ export async function appendRunningDay(
       relationship: 'Data',
     });
     // the library writes the file uncompressed; it is stored with /FlateDecode instead (it reads both)
+    if (deflated === undefined) return fail('pdf-append-failed');
     let compressed = 0;
     for (const [num, o] of update.objects) {
       if (before.has(num) || !isStream(o) || !isName(o.dict.entries.get('Type'), 'EmbeddedFile'))
         continue;
       const entries = new Map(o.dict.entries);
       entries.set('Filter', pdfName('FlateDecode'));
-      update.objects.set(num, {
+      update.set(ref(num), {
         t: 'stream',
         dict: { t: 'dict', entries },
-        data: context.flateStream(data).getContents(),
+        data: deflated,
       });
       compressed += 1;
     }
     if (compressed !== 1) return fail('pdf-append-failed');
-    return ok(writeUpdate(file, update).bytes);
-  } catch {
-    return fail('pdf-append-failed');
+    return ok(writeUpdate(drawn.file, update).bytes);
+  } catch (e) {
+    return fail(e instanceof PdfReadError ? 'bad-pdf' : 'pdf-append-failed');
   }
 }
 
