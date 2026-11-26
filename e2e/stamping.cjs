@@ -53,6 +53,17 @@ const AUTH_V3 = /^v3\.e2e-[a-z-]+\.\d{13}\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{86}$
     const t = await sect.getByText(/^Externe Zeitstempel \(\d+\)/).innerText();
     return Number(t.match(/\((\d+)\)/)[1]);
   };
+  // anchors are thinned to the newest per day (`thinAnchors`): progress is the stamp the newest one covers
+  const newestN = async () => {
+    // the column „bis Stempel“ (third cell) of every row of the anchor table
+    const cells = await sect
+      .locator('table')
+      .last()
+      .locator('tbody tr td:nth-child(3)')
+      .allTextContents();
+    const ns = cells.map((c) => Number((/Nr\. (\d+)/.exec(c) ?? [])[1] ?? 0));
+    return ns.length > 0 ? Math.max(...ns) : 0;
+  };
   const stamp = async (name) => {
     await go(page, 'Stempeln');
     await btn(name).click();
@@ -206,6 +217,7 @@ const AUTH_V3 = /^v3\.e2e-[a-z-]+\.\d{13}\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{86}$
   await toMonth();
   st = await state();
   ok('due again after new stamps', st.s === 'due', st.t);
+  const nBeforeExport = await newestN();
   const [dl] = await Promise.all([
     page.waitForEvent('download'),
     btn('Monat als PDF speichern').click(),
@@ -215,7 +227,12 @@ const AUTH_V3 = /^v3\.e2e-[a-z-]+\.\d{13}\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{86}$
   await page.waitForTimeout(800);
   st = await state();
   ok('export asked for a fresh anchor (status ok)', st.s === 'ok', st.t);
-  ok('two anchors', (await anchorCount()) === 2);
+  const nAfterExport = await newestN();
+  ok(
+    'the export anchor is the newest (one anchor per day kept)',
+    nAfterExport > nBeforeExport && (await anchorCount()) >= 1,
+    `${nBeforeExport} -> ${nAfterExport}, ${await anchorCount()} listed`,
+  );
   ok(
     'export message without a warning',
     !(await text(page)).includes('keinen frischen externen Zeitstempel'),
@@ -283,7 +300,7 @@ const AUTH_V3 = /^v3\.e2e-[a-z-]+\.\d{13}\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{86}$
     },
     /ungültig/,
   );
-  ok('anchors still 2 after tampering', (await anchorCount()) === 2);
+  ok('newest anchor unchanged after tampering', (await newestN()) === nAfterExport);
   await page.unroute('**/v1/stamp/**');
 
   // --- 4 rate limit: the client waits Retry-After itself (at most 3 sends per service in 130 s)
@@ -293,17 +310,18 @@ const AUTH_V3 = /^v3\.e2e-[a-z-]+\.\d{13}\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{86}$
     for (let i = 0; i < 6 && !seen; i++) {
       await nstamp();
       await toMonth();
-      const n = await anchorCount();
+      const n = await newestN();
       const from = statuses.length;
       await pressAnchor();
       const got = statuses.slice(from);
       seen = got.includes(429) || got.includes(503);
-      added = (await anchorCount()) === n + 1 && got.at(-1) === 200;
+      const after = await newestN();
+      added = after > n && got.at(-1) === 200;
       if (seen)
         ok(
           'real 429/503 busy of the relay: the client waited Retry-After and sent again, anchor added, no red box',
           added && (await alertText()) === '',
-          got.join(',') + ' | ' + (await alertText()),
+          `${got.join(',')} | newest ${n} -> ${after} | ${await alertText()}`,
         );
       await dismiss();
     }
@@ -356,12 +374,12 @@ const AUTH_V3 = /^v3\.e2e-[a-z-]+\.\d{13}\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{86}$
   await nstamp();
   await toMonth();
   await sect.getByText(/^Externe Zeitstempel/).click();
-  const before = await anchorCount();
+  const before = await newestN();
   await pressAnchor();
   const last = await sect.locator('table').last().innerText();
   ok(
     'first service down (502): next service used',
-    (await anchorCount()) === before + 1 && /sectigo/.test(last),
+    (await newestN()) > before && /sectigo/.test(last),
     last.replace(/\s+/g, ' ').slice(-120) + ' | ' + (await alertText()),
   );
   await dismiss();
@@ -428,12 +446,12 @@ const AUTH_V3 = /^v3\.e2e-[a-z-]+\.\d{13}\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{86}$
   await page.clock.setSystemTime(new Date(Date.now() - 3 * 3600e3));
   await toMonth();
   await sect.getByText(/^Externe Zeitstempel/).click();
-  const n0 = await anchorCount();
+  const n0 = await newestN();
   await pressAnchor();
   a = await alertText();
   ok(
     'device clock 3 h behind the relay: 401, no anchor added',
-    /nicht angenommen/.test(a) && /401/.test(a) && (await anchorCount()) === n0,
+    /nicht angenommen/.test(a) && /401/.test(a) && (await newestN()) === n0,
     a,
   );
   await dismiss();
@@ -457,7 +475,7 @@ const AUTH_V3 = /^v3\.e2e-[a-z-]+\.\d{13}\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{86}$
   a = await alertText();
   ok(
     'device clock right again: the anchor is added, no red box',
-    a === '' && (await anchorCount()) === n0 + 1,
+    a === '' && (await newestN()) > n0,
     a,
   );
   await dismiss();
