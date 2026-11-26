@@ -6,8 +6,8 @@ import { styles } from './styles.ts';
 
 /**
  * „Geräteschlüssel“: the employee pastes the one text he or she was given (`<kennung>.<schlüssel>`). It is
- * checked, imported as a key the page cannot read back, and stored encrypted in the vault. Afterwards only
- * the key id is shown; the field is emptied and the text is never shown again.
+ * checked and imported as a key the page cannot read back; that key is kept in IndexedDB, the vault holds
+ * only the key id (the text is stored nowhere). Afterwards only the key id is shown; the field is emptied.
  */
 export function DeviceKeySettings() {
   const anchoring = useAnchoring();
@@ -32,13 +32,13 @@ export function DeviceKeySettings() {
     }
   };
 
-  const remove = () => {
+  const remove = async () => {
     if (
       !confirm('Den Geräteschlüssel von diesem Gerät entfernen? Danach wird nicht mehr gestempelt.')
     ) {
       return;
     }
-    const refused = anchoring.removeDeviceKey();
+    const refused = await anchoring.removeDeviceKey();
     if (refused !== undefined) return showError(refused);
     setNote(DEVICE_KEY_TEXTS.removed);
   };
@@ -85,7 +85,7 @@ export function DeviceKeySettings() {
         Schlüssel speichern
       </button>{' '}
       {view.canRemove && (
-        <button type="button" style={styles.button} onClick={remove}>
+        <button type="button" style={styles.button} onClick={() => void remove()}>
           Schlüssel entfernen
         </button>
       )}

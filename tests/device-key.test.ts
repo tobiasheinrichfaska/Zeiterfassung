@@ -5,6 +5,7 @@ import { readTimestampResponse } from 'zeitstempel';
 import {
   DEVICE_KEY_LIMITS,
   DEVICE_KEY_SLOT,
+  DEVICE_KEY_TEXTS,
   REASON_TEXTS,
   base64UrlToBytes,
   emptyBook,
@@ -20,6 +21,7 @@ import {
   type RelayOptions,
 } from '../src/io/anchorService.ts';
 import { loadDeviceKey, removeDeviceKey, storeDeviceKey } from '../src/io/deviceKey.ts';
+import { memoryKeyStore } from '../src/io/keyStore.ts';
 import { createAppVault, vaultConfig } from '../src/ui/vault.ts';
 import { val } from './helpers.ts';
 
@@ -96,42 +98,86 @@ describe('the device key in the vault (io)', () => {
     return vault;
   }
 
-  it('is a slot of the vault, and stored only there, as a key the page cannot read back', async () => {
+  it('M2: the slot holds only the key id; the key is a non-extractable CryptoKey in its own store', async () => {
     expect(vaultConfig.slots).toContain(DEVICE_KEY_SLOT);
     const vault = await openVault();
-    expect(await loadDeviceKey(vault)).toEqual({ kind: 'none' });
+    const store = memoryKeyStore();
+    expect(await loadDeviceKey(vault, store)).toEqual({ kind: 'none' });
     const { pkcs8 } = await makeKey();
     const text = `geraet-7.${b64url(pkcs8)}`;
-    const stored = await storeDeviceKey(vault, ` ${text} `);
+    const stored = await storeDeviceKey(vault, store, ` ${text} `);
     expect(stored.ok).toBe(true);
-    expect(vault.readSlot(DEVICE_KEY_SLOT)).toBe(text);
-    const loaded = await loadDeviceKey(vault);
+    // the text is stored nowhere: the slot names the key id only
+    expect(vault.readSlot(DEVICE_KEY_SLOT)).toBe('kid:geraet-7');
+    expect(store.held()?.extractable).toBe(false);
+    const loaded = await loadDeviceKey(vault, store);
     expect(loaded.kind).toBe('key');
     if (loaded.kind !== 'key') return;
     expect(loaded.key.keyId).toBe('geraet-7');
     expect(loaded.key.privateKey.extractable).toBe(false);
     expect(loaded.key.privateKey.usages).toEqual(['sign']);
     await expect(crypto.subtle.exportKey('pkcs8', loaded.key.privateKey)).rejects.toThrow();
+    // the loaded key signs, and the signature verifies with the public key
+    const sig = await crypto.subtle.sign(
+      { name: 'ECDSA', hash: 'SHA-256' },
+      loaded.key.privateKey,
+      new Uint8Array([1, 2, 3]),
+    );
+    expect(sig.byteLength).toBe(64);
 
-    expect(removeDeviceKey(vault)).toBeUndefined();
-    expect(await loadDeviceKey(vault)).toEqual({ kind: 'none' });
+    // removal deletes both
+    expect(await removeDeviceKey(vault, store)).toBeUndefined();
+    expect(vault.readSlot(DEVICE_KEY_SLOT)).toBe('');
+    expect(store.held()).toBeUndefined();
+    expect(await loadDeviceKey(vault, store)).toEqual({ kind: 'none' });
   });
 
-  it('stores nothing for a text that is refused, and reports a stored text it cannot use', async () => {
+  it('M2: migrates a slot that still holds the text, once', async () => {
     const vault = await openVault();
-    const bad = await storeDeviceKey(vault, 'kein schlüssel');
+    const store = memoryKeyStore();
+    const { pkcs8 } = await makeKey();
+    vault.writeSlot(DEVICE_KEY_SLOT, `geraet-3.${b64url(pkcs8)}`);
+    const first = await loadDeviceKey(vault, store);
+    expect(first).toMatchObject({ kind: 'key', key: { keyId: 'geraet-3' } });
+    expect(vault.readSlot(DEVICE_KEY_SLOT)).toBe('kid:geraet-3');
+    expect(store.held()?.extractable).toBe(false);
+    const again = await loadDeviceKey(vault, store);
+    expect(again).toMatchObject({ kind: 'key', key: { keyId: 'geraet-3' } });
+    // storing fails: the slot keeps its text (the key is not lost), the key works for this session
+    const broken = await openVault();
+    broken.writeSlot(DEVICE_KEY_SLOT, `geraet-4.${b64url(pkcs8)}`);
+    const failing = { ...memoryKeyStore(), write: async () => Promise.reject(new Error('voll')) };
+    expect(await loadDeviceKey(broken, failing)).toMatchObject({ kind: 'key' });
+    expect(broken.readSlot(DEVICE_KEY_SLOT)).toBe(`geraet-4.${b64url(pkcs8)}`);
+  });
+
+  it('stores nothing for a text that is refused, and reports a stored key it cannot use', async () => {
+    const vault = await openVault();
+    const store = memoryKeyStore();
+    const bad = await storeDeviceKey(vault, store, 'kein schlüssel');
     expect(bad).toEqual({ ok: false, text: REASON_TEXTS['device-key-format'] });
     expect(vault.readSlot(DEVICE_KEY_SLOT)).toBeNull();
     // the P-256 OID is there, but the bytes are no key: WebCrypto refuses, nothing is stored
     const fake = new Uint8Array(100).fill(0x30);
     fake.set([0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07], 20);
-    const refused = await storeDeviceKey(vault, `k.${b64url(fake)}`);
+    const refused = await storeDeviceKey(vault, store, `k.${b64url(fake)}`);
     expect(refused).toEqual({ ok: false, text: REASON_TEXTS['device-key-unusable'] });
+    expect(vault.readSlot(DEVICE_KEY_SLOT)).toBeNull();
+    expect(store.held()).toBeUndefined();
+    // a store that cannot write: nothing in the slot
+    const failing = { ...memoryKeyStore(), write: async () => Promise.reject(new Error('voll')) };
+    const { pkcs8 } = await makeKey();
+    expect(await storeDeviceKey(vault, failing, `k.${b64url(pkcs8)}`)).toEqual({
+      ok: false,
+      text: DEVICE_KEY_TEXTS.storeFailed,
+    });
     expect(vault.readSlot(DEVICE_KEY_SLOT)).toBeNull();
 
     vault.writeSlot(DEVICE_KEY_SLOT, 'kaputt');
-    const loaded = await loadDeviceKey(vault);
-    expect(loaded.kind).toBe('unusable');
+    expect((await loadDeviceKey(vault, store)).kind).toBe('unusable');
+    // the id is there, the key is gone (browser data cleared): unusable, can be removed
+    vault.writeSlot(DEVICE_KEY_SLOT, 'kid:geraet-1');
+    expect((await loadDeviceKey(vault, store)).kind).toBe('unusable');
   });
 });
 

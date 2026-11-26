@@ -5,7 +5,8 @@ import { VAULT_SLOTS } from '../logic/index.ts';
  * The app's vault: prefix and slots are fixed for good (a changed prefix makes stored data unreadable).
  * Besides the book and the draft: two slots for the running monthly PDFs (`monatspdf-a`, `monatspdf-b`:
  * current and previous month). The slot
- * `geraeteschluessel` holds the device key for the time stamp relay (never in plain browser storage).
+ * `geraeteschluessel` holds only the device key's id; the key itself is a non-extractable CryptoKey in
+ * IndexedDB (`src/io/keyStore.ts`).
  */
 export const vaultConfig: VaultConfig = {
   prefix: 'zeiterfassung',

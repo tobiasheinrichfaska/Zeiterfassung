@@ -8,8 +8,10 @@ import { fail, ok, type Result } from './model.ts';
  *
  * `kennung` is the key id of the relay's key file (`[a-z][a-z0-9-]{0,31}`, no dot), `privater Schlüssel` is
  * line 1 of `zeitstempel`'s `make-key` (ECDSA P-256, PKCS#8, base64url without padding). Both parts are
- * public-safe characters only, so the dot separates them without ambiguity. The text is stored encrypted in
- * the vault slot `DEVICE_KEY_SLOT` and never shown again in full (only the key id).
+ * public-safe characters only, so the dot separates them without ambiguity. The text is **never stored**:
+ * `src/io/` imports it as a non-extractable `CryptoKey`, keeps that key in IndexedDB, and the vault slot
+ * `DEVICE_KEY_SLOT` holds only the key id as `kid:<kennung>` (encrypted). A slot of the earlier form (the
+ * whole text) is migrated once on load. Only the key id is ever shown.
  */
 export const DEVICE_KEY_SLOT = 'geraeteschluessel';
 
@@ -87,6 +89,18 @@ export function parseDeviceKey(input: string): Result<DeviceKeyText> {
   return ok({ keyId, text, pkcs8 });
 }
 
+const MARKER = 'kid:';
+
+/** What the slot holds for a stored key: only its id. */
+export const deviceKeyMarker = (keyId: string): string => `${MARKER}${keyId}`;
+
+/** The key id of a slot text `kid:<kennung>`, or null for any other text. */
+export function readDeviceKeyMarker(text: string): string | null {
+  if (!text.startsWith(MARKER)) return null;
+  const keyId = text.slice(MARKER.length);
+  return KEY_ID.test(keyId) ? keyId : null;
+}
+
 /** German texts around the device key (the error codes have theirs in `REASON_TEXTS`). */
 export const DEVICE_KEY_TEXTS = {
   missing: 'Gerät nicht freigeschaltet (Geräteschlüssel fehlt).',
@@ -95,6 +109,8 @@ export const DEVICE_KEY_TEXTS = {
   removed: 'Der Geräteschlüssel wurde entfernt. Das Gerät ist nicht mehr freigeschaltet.',
   unreadable:
     'Der gespeicherte Geräteschlüssel ist nicht lesbar. Bitte den Geräteschlüssel neu eingeben.',
+  storeFailed:
+    'Der Geräteschlüssel konnte in diesem Browser nicht gespeichert werden (Speicher nicht erreichbar oder voll).',
   unusableStored:
     'Auf diesem Gerät liegt ein Geräteschlüssel, der nicht verwendet werden kann. Sie können ihn entfernen und einen neuen eingeben.',
 } as const;

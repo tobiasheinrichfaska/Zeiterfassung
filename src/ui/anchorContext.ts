@@ -16,7 +16,7 @@ export interface AnchorApi {
   /** Checks, imports and stores a pasted device key; returns the German reason on failure. */
   enterDeviceKey(text: string): Promise<string | undefined>;
   /** Removes the device key from this device; returns the vault's refusal, or undefined. */
-  removeDeviceKey(): string | undefined;
+  removeDeviceKey(): Promise<string | undefined>;
   /** The service itself (one client for the whole app, so a 429 pause holds for every caller). */
   service: AnchorService | undefined;
   /** The relay's clock minus the device clock in ms, as last learned (0 = not known or in agreement). */

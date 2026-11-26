@@ -15,6 +15,7 @@ import {
   storeDeviceKey,
   type DeviceKeyLoad,
 } from '../io/deviceKey.ts';
+import { indexedDbKeyStore, type DeviceKeyStore } from '../io/keyStore.ts';
 import { AnchorContext, type AnchorApi } from './anchorContext.ts';
 import { useBookApi } from './bookContext.ts';
 import { ALLOWED_RELAYS, audienceFor } from './relayConfig.ts';
@@ -30,7 +31,17 @@ const ANCHOR_EVERY_MS = 15 * 60_000;
  * only while the app is open and online. Failures are shown, never swallowed. The device key (vault slot
  * `geraeteschluessel`) unlocks the device for the authenticated relay; without it nothing is sent.
  */
-export function AnchorProvider({ vault, children }: { vault: Vault; children: ReactNode }) {
+export function AnchorProvider({
+  vault,
+  keyStore,
+  children,
+}: {
+  vault: Vault;
+  /** Where the non-extractable device key is kept; IndexedDB unless given. */
+  keyStore?: DeviceKeyStore;
+  children: ReactNode;
+}) {
+  const [store] = useState<DeviceKeyStore>(() => keyStore ?? indexedDbKeyStore());
   const { book, getBook, apply, showError } = useBookApi();
   const [, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -60,29 +71,29 @@ export function AnchorProvider({ vault, children }: { vault: Vault; children: Re
 
   useEffect(() => {
     let live = true;
-    void loadDeviceKey(vault).then((loaded) => {
+    void loadDeviceKey(vault, store).then((loaded) => {
       if (live) setDeviceKey(loaded);
     });
     return () => {
       live = false;
     };
-  }, [vault]);
+  }, [vault, store]);
 
   const enterDeviceKey = useCallback(
     async (text: string) => {
-      const stored = await storeDeviceKey(vault, text);
+      const stored = await storeDeviceKey(vault, store, text);
       if (!stored.ok) return stored.text;
       setDeviceKey({ kind: 'key', key: stored.key });
       return undefined;
     },
-    [vault],
+    [vault, store],
   );
 
-  const removeDeviceKey = useCallback(() => {
-    const refused = clearDeviceKey(vault);
+  const removeDeviceKey = useCallback(async () => {
+    const refused = await clearDeviceKey(vault, store);
     if (refused === undefined) setDeviceKey({ kind: 'none' });
     return refused;
-  }, [vault]);
+  }, [vault, store]);
 
   const sealNow = useCallback(() => {
     const now = new Date();

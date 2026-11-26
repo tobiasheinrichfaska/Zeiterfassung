@@ -68,11 +68,13 @@ verloren, wird ein neuer Schlüssel erzeugt (Schritte 1 bis 3) und der alte wide
    angezeigt.
 
 Die App prüft die Form (Kennung, Punkt, Schlüssel auf P-256) und liest den Schlüssel so ein, dass die Seite ihn
-benutzen, aber nicht mehr auslesen kann. Gespeichert wird er **verschlüsselt im Tresor** der App (Fach
-`geraeteschluessel`), nie im einfachen Speicher des Browsers und nicht in der Sicherungsdatei: Nach einem Gerätewechsel
-wird er neu eingetragen (besser: ein neuer Schlüssel für das neue Gerät, der alte wird widerrufen).
+benutzen, aber nicht mehr auslesen kann. Gespeichert wird **nur dieser nicht auslesbare Schlüssel** in einer eigenen
+IndexedDB-Datenbank des Browsers (`zeiterfassung-geraeteschluessel`); der eingefügte Text wird nirgends gespeichert. Der
+Tresor der App (Fach `geraeteschluessel`, verschlüsselt) hält nur die Kennung. Nicht in der Sicherungsdatei: Nach einem
+Gerätewechsel wird er neu eingetragen (besser: ein neuer Schlüssel für das neue Gerät, der alte wird widerrufen). Ein
+Fach, das noch den ganzen Text enthält (frühere Fassung), wird beim nächsten Start einmal umgestellt.
 
-„Schlüssel entfernen“ löscht ihn vom Gerät; danach wird nicht mehr gestempelt.
+„Schlüssel entfernen“ löscht ihn vom Gerät (Fach und Datenbank-Eintrag); danach wird nicht mehr gestempelt.
 
 ## Widerrufen
 
