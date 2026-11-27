@@ -34,8 +34,10 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
   `*.zeiterfassung.json`).
 - Dependencies `local-vault` (tag `v0.1.0`) and `rad-navi` (tag `v0.1.1`) come by Git tag; their install
   scripts build them (`prepare`). Tags are changed only with Tobias' OK.
-- **Zeitstempel library (TEMPORARY pin):** `zeitstempel` is pinned to commit `c50a72e` (its `main` after PR #11:
-  one client `zeitstempel/client`, relay auth v3, evidence v1, trust per service, `verifyEvidence` takes the whole map; built on install by its `prepare`)
+- **Zeitstempel library (TEMPORARY pin):** `zeitstempel` is pinned to commit `951b91f` (its `main` after PR #12:
+  one client `zeitstempel/client`, relay auth v3, evidence v1, trust per service, `verifyEvidence` takes the whole map; client fixes of PR #12:
+  no leaked listener or timer, a `Retry-After` date read with the learned clock offset, a 429 whose body `attemptTimeoutMs` cut keeps the pause;
+  built on install by its `prepare`)
   until the PC pushes the approved tag `v0.2.0` on that commit (then switch to `#v0.2.0`). The app uses `createRelayClient` from
   `zeitstempel/client` through the thin adapter `src/io/anchorService.ts` (German texts stay in the app; timeout
   130 s; no `GET /v1/services`: services and trust come from the package's `services.json`/`anchors`). **Audience**
@@ -47,8 +49,8 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
   holds only `kid:<kennung>`; the pasted text is never stored (an old text slot is migrated once on load); never in
   the backup; only the kid is shown. Without a key: „Gerät nicht freigeschaltet“; recording times always works. Keys are created in
   the project for now (`docs/geraeteschluessel.md`); a key server may follow.
-- **`pdf-fortschreiben` is pinned to commit `7148b7b`** (TEMPORARY; its `main` after PR #4: hardening series,
-  entry `pdf-fortschreiben/pdflib`, version 0.1.0, `dist` built on install by its `prepare`) until the PC pushes the
+- **`pdf-fortschreiben` is pinned to commit `d90c7cd`** (TEMPORARY; its `main` after PR #5: hardening series,
+  deep page trees refused, objects deleted by pdf-lib refused, all trailer keys carried over; entry `pdf-fortschreiben/pdflib`, version 0.1.0, `dist` built on install by its `prepare`) until the PC pushes the
   approved tag `v0.1.0` on that commit (then switch to `github:tobiasheinrichfaska/pdf-fortschreiben#v0.1.0`).
 - **Running monthly PDF (decided 2026-11-24; built, never run in a browser):** one PDF per month, continued
   with `pdf-fortschreiben`; each **ended** day (with „Gehen“, not after today) is appended as **a new page**
@@ -68,8 +70,9 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
   `prepareDrawnPages`/`reuseFont` of `pdf-fortschreiben/pdflib` (no own copy of the pdf-lib hybrid code), adds the
   attachment to the same revision and writes it with `writeUpdate`; `src/io/runningPdfWork.ts` stamps with
   `appendDocTimeStamp` (the token must be one DER SEQUENCE). Each revision gets a new second `/ID` element.
-  After the re-pin (2026-11-26, `e2e/` with zeitstempel `c50a72e`): running PDF 53/53, `pdfcheck.ts` 9/9 on the
-  three running PDFs of that run (`stamping.cjs` not rerun).
+  After the re-pin to zeitstempel `951b91f` and pdf-fortschreiben `d90c7cd` (2026-11-27, no app change needed;
+  `e2e/` with a fresh clone of zeitstempel at `951b91f`): `stamping.cjs` 51/51, `runningpdf.cjs` 53/53,
+  `retention.cjs` 17/17, `pdfcheck.ts` 15/15 on the five PDFs of those runs (every token `openssl ts -verify` OK).
 - **Base library in a subdirectory (TEMPORARY):** `einzeldatei-csp/` (Content-Security-Policy for an offline single file: inline script hashes, `connect-src` from origins, `checkCsp`, Vite plugin) has its own `package.json`, tests and CI job (`einzeldatei-csp` in `tests.yml`); the app does **not** use it yet (same default policy as `src/build/csp.ts`). It lives here only because the cloud session could not create a repository. **Claude on the PC: extract it next time, following `einzeldatei-csp/HERAUSLOESEN.md`.** Root lint and format ignore it.
 - The device clock is not a trusted time: `recordedAt` and the stamped minutes are what the device says.
 - Retention: only a month that was **exported** may be purged, and never a running day.
