@@ -47,8 +47,9 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
   holds only `kid:<kennung>`; the pasted text is never stored (an old text slot is migrated once on load); never in
   the backup; only the kid is shown. Without a key: „Gerät nicht freigeschaltet“; recording times always works. Keys are created in
   the project for now (`docs/geraeteschluessel.md`); a key server may follow.
-- **`pdf-fortschreiben` is pinned to commit `752a60a`** (no tag yet; same TEMPORARY rule as `zeitstempel`
-  had): switch to `github:tobiasheinrichfaska/pdf-fortschreiben#<tag>` once Tobias approves a tag with a build.
+- **`pdf-fortschreiben` is pinned to commit `7148b7b`** (TEMPORARY; its `main` after PR #4: hardening series,
+  entry `pdf-fortschreiben/pdflib`, version 0.1.0, `dist` built on install by its `prepare`) until the PC pushes the
+  approved tag `v0.1.0` on that commit (then switch to `github:tobiasheinrichfaska/pdf-fortschreiben#v0.1.0`).
 - **Running monthly PDF (decided 2026-11-24; built, never run in a browser):** one PDF per month, continued
   with `pdf-fortschreiben`; each **ended** day (with „Gehen“, not after today) is appended as **a new page**
   (table up to that day) plus **a new JSON attachment with its own name** (add only), then one document time
@@ -59,7 +60,12 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
   later state only on the next day's page.
 - **Base library `pdf-fortschreiben`** (incremental PDF revisions, PDF/A-3 attachments, PAdES document time
   stamps) lives in its own repository `tobiasheinrichfaska/pdf-fortschreiben` (extracted 2026-11-24 with its
-  history). The app does **not** use it yet; no dependency is added until Tobias approves a tag with a build.
+  history). The app uses it by the commit pin above: `src/logic/runningPdf.ts` draws each day page through
+  `prepareDrawnPages`/`reuseFont` of `pdf-fortschreiben/pdflib` (no own copy of the pdf-lib hybrid code), adds the
+  attachment to the same revision and writes it with `writeUpdate`; `src/io/runningPdfWork.ts` stamps with
+  `appendDocTimeStamp` (the token must be one DER SEQUENCE). Each revision gets a new second `/ID` element.
+  After the re-pin (2026-11-26, `e2e/` with zeitstempel `c50a72e`): running PDF 53/53, `pdfcheck.ts` 9/9 on the
+  three running PDFs of that run (`stamping.cjs` not rerun).
 - **Base library in a subdirectory (TEMPORARY):** `einzeldatei-csp/` (Content-Security-Policy for an offline single file: inline script hashes, `connect-src` from origins, `checkCsp`, Vite plugin) has its own `package.json`, tests and CI job (`einzeldatei-csp` in `tests.yml`); the app does **not** use it yet (same default policy as `src/build/csp.ts`). It lives here only because the cloud session could not create a repository. **Claude on the PC: extract it next time, following `einzeldatei-csp/HERAUSLOESEN.md`.** Root lint and format ignore it.
 - The device clock is not a trusted time: `recordedAt` and the stamped minutes are what the device says.
 - Retention: only a month that was **exported** may be purged, and never a running day.

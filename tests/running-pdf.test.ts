@@ -62,7 +62,7 @@ function november(): TimeBook {
 /** A stand-in token: one DER OCTET STRING holding the digest (checks the plumbing, proves nothing). */
 const fakeStamper = (seen: Uint8Array[]) => async (digest: Uint8Array) => {
   seen.push(digest);
-  return Uint8Array.from([0x04, digest.length, ...digest]);
+  return Uint8Array.from([0x30, digest.length, ...digest]);
 };
 
 const isPrefix = (a: Uint8Array, b: Uint8Array) =>
@@ -302,7 +302,7 @@ describe('runningDayLayout and bookUpTo', () => {
       ),
     );
     const token = new Uint8Array(6000);
-    token.set([0x04, 0x82, (6000 - 4) >> 8, (6000 - 4) & 255]);
+    token.set([0x30, 0x82, (6000 - 4) >> 8, (6000 - 4) & 255]);
     let pdf = val(await startRunningPdf(book, '2026-11', ASSETS, { createdIso: START }));
     const start = pdf.length;
     let pages = 0;
