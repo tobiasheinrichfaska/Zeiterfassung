@@ -44,7 +44,8 @@ Die Schlüsseldatei (Pfad aus `RELAY_KEYS_FILE`) hat diese Form; Zeile 2 kommt a
 { "version": 2, "keys": [{ "id": "geraet-07", "publicKey": "BAsY3mTq0…", "solo": true }] }
 ```
 
-Das Relay liest die Datei alle 5 Sekunden neu; ein Neustart ist nicht nötig. Die Datei enthält kein Geheimnis, aber
+Das Relay liest die Datei alle 5 Sekunden neu; ein Neustart ist nicht nötig (anders, wenn der Inhalt als
+Umgebungsvariable `RELAY_KEYS_JSON` gesetzt ist: dann gilt eine Änderung erst nach Neustart des Containers). Die Datei enthält kein Geheimnis, aber
 nur der Betreiber darf sie schreiben (wer sie schreiben kann, kann einen eigenen Schlüssel eintragen). Einzelheiten:
 `docs/relay.md` des Pakets `zeitstempel`, Abschnitt „Zugangsschlüssel“.
 
