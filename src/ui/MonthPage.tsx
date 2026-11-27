@@ -27,6 +27,7 @@ import {
   rowTexts,
   runningPdfFileName,
   runningPdfLines,
+  slotPlanNotes,
   SAVE_TEXTS,
   shiftMonth,
   type WorkdayInput,
@@ -400,6 +401,12 @@ export function MonthPage() {
           werden (zum Beispiel für die Personalakte).
         </p>
         {savedOut && !running && <p>{SAVE_TEXTS.savedOut(savedOut.at)}</p>}
+        {runningPdf.plan &&
+          slotPlanNotes(runningPdf.plan).map((n) => (
+            <p key={n} role="status">
+              {n}
+            </p>
+          ))}
         <ul role="status">
           {runningPdfLines(running).map((line) => (
             <li key={line}>{line}</li>

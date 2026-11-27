@@ -2,7 +2,7 @@ import type { Reason } from './model.ts';
 import type { AnchorStatus } from './anchors.ts';
 import { formatIsoDate, formatIsoDateTime } from './time.ts';
 import { monthLabel } from './view.ts';
-import type { PdfSaveRequest, PdfSlotPlan } from './runningPlan.ts';
+import { forcedSave, type PdfSaveRequest, type PdfSlotPlan } from './runningPlan.ts';
 
 /** German message for every error code (product text; the logic layer only returns codes). */
 export const REASON_TEXTS: Record<Reason, string> = {
@@ -109,6 +109,8 @@ export const RUNNING_PDF_TEXTS = {
   tooLarge:
     'Die laufende Monatsdatei ist zu groß für den Speicher der App. Der neue Stand wurde nicht gespeichert, damit die Arbeitszeiten immer Platz haben. Bitte die gespeicherte Datei jetzt sichern.',
   failed: 'Die laufende Monatsdatei konnte nicht fortgeschrieben werden',
+  waitsForRoom: (month: string) =>
+    `Der neue Stand wurde nicht gespeichert: Im Speicher der App ist erst wieder Platz, wenn die Monatsdatei ${monthLabel(month)} gespeichert ist. Danach wird er nachgeholt.`,
   releaseChanged:
     'Die Monatsdatei in der App hat sich inzwischen geändert und wurde nicht entfernt. Bitte den neuesten Stand speichern.',
 } as const;
@@ -127,6 +129,8 @@ export function saveRequestText(r: PdfSaveRequest, today: string): string {
       return `Die laufende Monatsdatei ${label} liegt zweimal in der App. Bitte diese zweite Datei speichern.`;
     case 'too-large':
       return `${RUNNING_PDF_TEXTS.tooLarge} (${label})`;
+    case 'room':
+      return `Im Speicher der App ist kein Platz mehr für den neuen Stand der laufenden Monatsdatei des aktuellen Monats. Bitte zuerst die Monatsdatei ${label} speichern; danach wird die aktuelle weitergeschrieben.`;
   }
 }
 
@@ -172,6 +176,26 @@ export function slotPlanNotes(plan: PdfSlotPlan): string[] {
       `Eine Monatsdatei für ${monthLabel(a.month)} liegt in der App, obwohl dieser Monat noch nicht begonnen hat (Geräteuhr prüfen). Sie bleibt unverändert.`,
     );
   return out;
+}
+
+/**
+ * What the save prompt shows for a plan (the UI only draws it): `forced` (the covering overlay), `reminder`
+ * (the banner with the files to save) or `notes` (the banner with the plan's notes only), each with the
+ * plan's notes (`slotPlanNotes`) so that a waiting current month, an unreadable slot or a file dated after
+ * today is said wherever the prompt appears; `none` when there is nothing to say.
+ */
+export type SavePromptView =
+  | { kind: 'none' }
+  | { kind: 'forced' | 'reminder'; requests: PdfSaveRequest[]; notes: string[] }
+  | { kind: 'notes'; notes: string[] };
+
+export function savePromptView(plan: PdfSlotPlan | undefined): SavePromptView {
+  if (!plan) return { kind: 'none' };
+  const notes = slotPlanNotes(plan);
+  const forced = forcedSave(plan);
+  if (forced.length > 0) return { kind: 'forced', requests: forced, notes };
+  if (plan.save.length > 0) return { kind: 'reminder', requests: plan.save, notes };
+  return notes.length > 0 ? { kind: 'notes', notes } : { kind: 'none' };
 }
 
 /** From this difference between the device clock and the relay's clock on, the person is warned. */

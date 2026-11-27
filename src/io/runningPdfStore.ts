@@ -1,13 +1,17 @@
 import type { Vault } from 'local-vault';
 import {
+  PDF_SLOTS,
   RUNNING_PDF_TEXTS,
+  VAULT_BUDGET,
   VAULT_SLOTS,
   vaultFits,
   decodeRunningPdf,
   encodeRunningPdf,
   pdfFitsSlot,
   savedMarker,
+  savedMarkerOf,
   type MonthKey,
+  type SavedPdf,
   type StoredRunningPdf,
 } from '../logic/index.ts';
 
@@ -15,7 +19,6 @@ import {
  * The running monthly PDFs in the vault: two fixed slots (`monatspdf-a`, `monatspdf-b`), the file as
  * Base64, encrypted like every slot; the file names its month. `local-vault` cannot remove a slot, so an
  * emptied slot is an empty text, and a slot whose file was saved out holds the marker of that month.
- * The slots of the earlier build (`monatspdf-JJJJ-MM`) are read the same way.
  */
 export type RunningPdfRead = StoredRunningPdf | { kind: 'error'; text: string };
 
@@ -43,25 +46,35 @@ export function otherSlotsChars(vault: Pick<Vault, 'readSlot'>, slot: string): n
 }
 
 /**
- * Writes a file into a slot, unless its text is longer than `PDF_SLOT_LIMIT`, or the whole vault (the
- * other slots plus this text) would pass `VAULT_BUDGET` (the book has priority): then nothing is written
- * and `{ tooLarge: true }` comes back. Otherwise the vault's refusal text, or undefined.
+ * Writes a file into a slot, unless its text is longer than `PDF_SLOT_LIMIT` (`{ tooLarge: true }`), or
+ * the whole vault (the other slots plus this text) would pass `VAULT_BUDGET` (the book has priority):
+ * `{ tooLarge: true, lacking }` with the characters that are missing. Then nothing is written. Otherwise the
+ * vault's refusal text, or undefined.
  */
 export function writePdfSlot(
   vault: Pick<Vault, 'writeSlot' | 'readSlot'>,
   slot: string,
   pdf: Uint8Array,
   limit?: number,
-  budget?: number,
-): string | { tooLarge: true } | undefined {
+  budget: number = VAULT_BUDGET,
+): string | TooLarge | undefined {
   const text = encodeRunningPdf(pdf);
   if (!pdfFitsSlot(text, limit)) return { tooLarge: true };
-  if (!vaultFits(otherSlotsChars(vault, slot), text, budget)) return { tooLarge: true };
+  const others = otherSlotsChars(vault, slot);
+  if (!vaultFits(others, text, budget)) {
+    return { tooLarge: true, lacking: others + text.length - budget };
+  }
   return vault.writeSlot(slot, text);
 }
 
+/** A state that did not fit: over the slot limit, or (`lacking` set) over the vault's budget. */
+export interface TooLarge {
+  tooLarge: true;
+  lacking?: number;
+}
+
 /** The text of a refusal of `writePdfSlot`. */
-export const refusalText = (r: string | { tooLarge: true }): string =>
+export const refusalText = (r: string | TooLarge): string =>
   typeof r === 'string' ? r : RUNNING_PDF_TEXTS.tooLarge;
 
 /** After the employee saved a month's file: the slot keeps only the marker of that month. */
@@ -81,4 +94,21 @@ export function clearPdfSlot(
 ): string | undefined {
   if (readPdfSlot(vault, slot).kind === 'none') return undefined;
   return vault.writeSlot(slot, '');
+}
+
+/**
+ * The months whose running PDF was saved out, from the markers in the two slots (for `addAnchor`: their
+ * anchors are in the saved file). A slot the vault cannot open counts as no marker.
+ */
+export function savedPdfs(vault: Pick<Vault, 'readSlot'>): SavedPdf[] {
+  const out: SavedPdf[] = [];
+  for (const slot of PDF_SLOTS) {
+    try {
+      const marker = savedMarkerOf(vault.readSlot(slot));
+      if (marker) out.push(marker);
+    } catch {
+      // unreadable: no marker
+    }
+  }
+  return out;
 }

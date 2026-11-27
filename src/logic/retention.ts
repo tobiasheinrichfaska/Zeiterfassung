@@ -14,8 +14,16 @@ export function markExported(book: TimeBook, month: MonthKey, whenIso: string): 
  */
 export function exportCovers(book: TimeBook, month: MonthKey): boolean {
   const exported = book.exportedMonths[month];
-  if (exported === undefined) return false;
-  const at = Date.parse(exported);
+  return exported !== undefined && unchangedSince(book, month, exported);
+}
+
+/**
+ * Whether nothing was recorded or changed in a month after `atIso` (device-clock times, compared like
+ * `exportCovers`): a file that left the device at that time still holds everything of the month.
+ */
+export function unchangedSince(book: TimeBook, month: MonthKey, atIso: string): boolean {
+  const at = Date.parse(atIso);
+  if (!Number.isFinite(at)) return false;
   const later = (iso: string) => Date.parse(iso) > at;
   return !(
     Object.values(book.days).some((d) => monthOf(d.date) === month && later(d.recordedAt)) ||

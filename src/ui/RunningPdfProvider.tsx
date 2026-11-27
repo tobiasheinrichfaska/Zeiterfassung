@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { Vault } from 'local-vault';
 import {
   clockFromDate,
-  daysToAppend,
+  runningPdfDue,
   type MonthKey,
   type PdfAssets,
   type PdfSlotPlan,
@@ -32,7 +32,7 @@ const assets = (): PdfAssets => (fonts ??= pdfAssets());
 
 /**
  * Keeps the running monthly PDFs (in two slots: current month and, for at most a week, previous month)
- * up to date: at the start (moving files of the earlier build once), after every change of the book that
+ * up to date: at the start, after every change of the book that
  * ends a day, when the time stamp service becomes available, every 15 minutes while a state is unstamped
  * and every hour (the date may have changed). Runs one after the other, never two at once. Shows the
  * save prompt (forced from the 8th, a reminder before) above the pages.
@@ -52,9 +52,8 @@ export function RunningPdfProvider({ vault, children }: { vault: Vault; children
     (next: RunningPdfRun) => {
       known.set(next);
       setRun(next);
-      if (next.problems.length > 0) showError(next.problems.join(' '));
     },
-    [known, showError],
+    [known],
   );
 
   /** Runs `work` after the run going on (one at a time). */
@@ -102,30 +101,27 @@ export function RunningPdfProvider({ vault, children }: { vault: Vault; children
     refresh();
   }, [service, needsKey, latestService, latestNeedsKey, refresh]);
 
-  // a day that ended (or was entered) and is not in its file yet
+  // a day that ended (or was entered) and is not in its file yet; also when no run finished yet or the
+  // last plan is of an earlier month
   useEffect(() => {
-    const last = known.get();
-    if (!last) return;
-    const today = clockFromDate(new Date()).date;
-    const due = [last.plan.previous, last.plan.current].some((use) => {
-      if (!use) return false;
-      const info = last.infos.find((i) => i.month === use.month);
-      return daysToAppend(book, use.month, info?.days ?? [], today).length > 0;
-    });
-    if (due) refresh();
+    if (runningPdfDue(book, known.get(), clockFromDate(new Date()).date)) refresh();
   }, [book, known, refresh]);
 
   useEffect(() => {
     const id = setInterval(() => {
       const last = known.get();
-      if (last?.infos.some((i) => !i.newestStamped && i.days.length > 0 && !i.tooLarge)) refresh();
+      if (
+        runningPdfDue(getBook(), last, clockFromDate(new Date()).date) ||
+        last?.infos.some((i) => !i.newestStamped && i.days.length > 0 && !i.tooLarge)
+      )
+        refresh();
     }, RETRY_EVERY_MS);
     const hourly = setInterval(refresh, PLAN_EVERY_MS);
     return () => {
       clearInterval(id);
       clearInterval(hourly);
     };
-  }, [known, refresh]);
+  }, [known, refresh, getBook]);
 
   const months = useMemo(
     () =>

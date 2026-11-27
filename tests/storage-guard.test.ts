@@ -23,7 +23,10 @@ describe('H2: the whole vault stays within its budget when a running PDF is writ
     vault.writeSlot(BOOK_SLOT, 'x'.repeat(2_600_000));
     vault.writeSlot('monatspdf-b', 'A'.repeat(800_000));
     // 200 000 characters would fit the slot limit, but not the whole vault
-    expect(writePdfSlot(vault, 'monatspdf-a', pdfOf(200_000))).toEqual({ tooLarge: true });
+    const refused = writePdfSlot(vault, 'monatspdf-a', pdfOf(200_000));
+    // over the vault's budget (not the slot limit): it says how much is missing
+    expect(refused).toMatchObject({ tooLarge: true });
+    expect(typeof refused === 'object' && refused.lacking).toBeGreaterThanOrEqual(100_000);
     expect(readPdfSlot(vault, 'monatspdf-a')).toEqual({ kind: 'none' });
     // the same file fits when the book is small
     vault.writeSlot(BOOK_SLOT, 'x'.repeat(1000));

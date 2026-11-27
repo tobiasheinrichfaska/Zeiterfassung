@@ -5,8 +5,39 @@
 // inline style text is allowed (and none is emitted).
 import { createHash } from 'node:crypto';
 
-const SCRIPT = /<script\b([^>]*)>([\s\S]*?)<\/script>/g;
-const STYLE = /<style\b([^>]*)>([\s\S]*?)<\/style>/g;
+const SCRIPT = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+const STYLE = /<style\b([^>]*)>([\s\S]*?)<\/style>/gi;
+const RAW_TEXT = /<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/iy;
+
+/**
+ * The page with every HTML comment blanked out (same length, so positions stay valid); bodies of
+ * `<script>` and `<style>` are code, not comments. The same rule as `einzeldatei-csp`.
+ */
+function maskComments(html: string): string {
+  let out = '';
+  let i = 0;
+  while (i < html.length) {
+    if (html.startsWith('<!--', i)) {
+      const close = html.indexOf('-->', i + 4);
+      const end = close < 0 ? html.length : close + 3;
+      out += html.slice(i, end).replace(/[^\n]/g, ' ');
+      i = end;
+      continue;
+    }
+    if (html[i] === '<') {
+      RAW_TEXT.lastIndex = i;
+      const raw = RAW_TEXT.exec(html);
+      if (raw) {
+        out += raw[0];
+        i += raw[0].length;
+        continue;
+      }
+    }
+    out += html[i];
+    i += 1;
+  }
+  return out;
+}
 
 function hashOf(text: string): string {
   return `'sha256-${createHash('sha256').update(text, 'utf8').digest('base64')}'`;
@@ -42,9 +73,14 @@ export function cspFor(
  * Inserts the policy as the first element after `<meta charset>`. Refuses a page that loads a script or
  * stylesheet from outside or already carries a policy — the single file must not.
  */
-export function withCsp(html: string, connectOrigins: readonly string[] = []): string {
-  // Look at the page's own markup only: the bundled code may mention these tags as text.
-  const markup = html.replace(SCRIPT, (_all, attrs: string) => `<script${attrs}></script>`);
+export function withCsp(source: string, connectOrigins: readonly string[] = []): string {
+  // Look at the page's own markup only: comments and the bundled code (which may mention these tags as
+  // text) are blanked out, keeping every position, so the place found below is the place in `source`.
+  const html = maskComments(source);
+  const markup = html.replace(SCRIPT, (all: string, _attrs: string, body: string) => {
+    const open = all.length - body.length - '</script>'.length;
+    return all.slice(0, open) + body.replace(/[^\n]/g, ' ') + all.slice(open + body.length);
+  });
   if (/<meta[^>]+http-equiv=["']?Content-Security-Policy/i.test(markup)) {
     throw new Error('The page already has a Content-Security-Policy');
   }
@@ -66,5 +102,5 @@ export function withCsp(html: string, connectOrigins: readonly string[] = []): s
   if (!charset) throw new Error('The page has no <meta charset>');
   const at = charset.index + charset[0].length;
   const tag = `\n    <meta http-equiv="Content-Security-Policy" content="${policy}" />`;
-  return html.slice(0, at) + tag + html.slice(at);
+  return source.slice(0, at) + tag + source.slice(at);
 }

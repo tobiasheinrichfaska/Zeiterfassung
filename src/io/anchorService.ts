@@ -63,6 +63,12 @@ export interface RelayOptions {
   trusted?: ReadonlyMap<string, { anchors: string[] }>;
   /** Called with the relay's clock minus the device clock (ms) when it moves by over 30 s, and with 0 when it is back within 30 s. */
   onClockOffset?: (offsetMs: number) => void;
+  /**
+   * Ends this service for good once aborted: a stamp running then stops before its next send (nothing more
+   * is signed with this device key), and every later call fails at once. Aborted when the device key is
+   * removed or replaced, or the relay changes.
+   */
+  signal?: AbortSignal;
 }
 
 const VERIFY_TEXTS: Record<string, string> = {
@@ -176,6 +182,26 @@ export function outcomeOf(failure: ClientFailure, pausedMs: number): AnchorOutco
   }
 }
 
+/** How long a service the relay does not offer or the key may not use is left out (monotonic, ms). */
+export const DROPPED_FOR_MS = 60 * 60_000;
+
+/**
+ * The answer when no service is left: `unauthorized` with the 403 text when every one was dropped by
+ * `403 service-not-allowed` (the device key may use none of them), else `refused` (the relay offers none
+ * the app knows, or the app knows none).
+ */
+export function noServiceLeft(dropped: readonly ClientFailure[]): AnchorOutcome {
+  const forbidden = dropped.filter((f) => f.status === 403 && f.code === 'service-not-allowed');
+  if (dropped.length > 0 && forbidden.length === dropped.length) {
+    return outcomeOf(forbidden[0] as ClientFailure, 0);
+  }
+  return {
+    ok: false,
+    reason: 'refused',
+    detail: 'kein Dienst des Weiterreichers ist der App bekannt',
+  };
+}
+
 /** A relay answer that says „this service is not here for you“: the next service is tried. */
 const serviceMissing = (f: ClientFailure): boolean =>
   f.reason === 'relay-error' &&
@@ -194,7 +220,9 @@ const serviceMissing = (f: ClientFailure): boolean =>
  * tree's root, which is no PAdES document time stamp of the PDF.
  *
  * A service the relay does not offer (`404 unknown-service`) or the key may not use
- * (`403 service-not-allowed`) is left out from then on, and the stamp is asked again of the rest.
+ * (`403 service-not-allowed`) is left out for `DROPPED_FOR_MS` (one hour on the monotonic clock; the relay's
+ * list or the key's services may change), and the stamp is asked again of the rest. When every service is
+ * left out by `403 service-not-allowed`, the answer is `unauthorized` (the device key lacks permission).
  */
 /**
  * Only the origin of `base` is used (the client takes no path); `auth` is the device key.
@@ -228,7 +256,17 @@ export function createRelayService(
     learnClock(response);
     return response;
   };
-  const missing = new Set<string>();
+  const monoNow = options.monoNow ?? (() => performance.now());
+  /** Services left out: id → the failure that dropped it and when (monotonic). */
+  const dropped = new Map<string, { failure: ClientFailure; atMono: number }>();
+  const missing = {
+    has: (id: string): boolean => dropped.has(id),
+    /** Forgets what was dropped longer than `DROPPED_FOR_MS` ago. */
+    expire: () => {
+      const now = monoNow();
+      for (const [id, d] of dropped) if (now - d.atMono >= DROPPED_FOR_MS) dropped.delete(id);
+    },
+  };
   let clientProblem: ClientFailure | null = null;
   let current: { key: string; client: RelayClient | null } | undefined;
   /** The client over the services still in play (made again only when one drops out). */
@@ -251,7 +289,7 @@ export function createRelayService(
             services: ids,
             fetch: fetchLike,
             now: wallNow,
-            monoNow: options.monoNow ?? (() => performance.now()),
+            monoNow,
             timeoutMs: options.timeoutMs ?? RELAY_TIMEOUT_MS,
           });
     const client = made === null ? null : made.ok ? made.value : null;
@@ -263,25 +301,27 @@ export function createRelayService(
     async anchor(hashHex) {
       const hash = hexToBytes(hashHex);
       if (!hash) return { ok: false, reason: 'bad-response', detail: 'Hash' };
+      missing.expire();
       for (;;) {
         const client = clientNow();
         if (!client) {
-          return clientProblem
-            ? outcomeOf(clientProblem, 0)
-            : {
-                ok: false,
-                reason: 'refused',
-                detail: 'kein Dienst des Weiterreichers ist der App bekannt',
-              };
+          if (clientProblem) return outcomeOf(clientProblem, 0);
+          return noServiceLeft([...dropped.values()].map((d) => d.failure));
         }
-        const stamped = await client.stamp(hash, { mode: 'solo' });
+        const stamped = await client.stamp(
+          hash,
+          options.signal ? { mode: 'solo', signal: options.signal } : { mode: 'solo' },
+        );
         if (stamped.ok) return { ok: true, value: { evidence: stamped.value } };
         if (serviceMissing(stamped)) {
           const service = stamped.detail;
           // the client names the service asked in `detail` (the relay's 404/403 carries no reason);
           // otherwise the first one still in play
           const first = [...trusted.keys()].find((id) => !missing.has(id));
-          missing.add(service && trusted.has(service) ? service : (first ?? ''));
+          dropped.set(service && trusted.has(service) ? service : (first ?? ''), {
+            failure: stamped,
+            atMono: monoNow(),
+          });
           continue;
         }
         return outcomeOf(stamped, client.pausedForMs());

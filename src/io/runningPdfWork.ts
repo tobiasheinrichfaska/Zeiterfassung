@@ -9,9 +9,11 @@ import {
   appendRunningDay,
   clockFromDate,
   daysToAppend,
+  encodeRunningPdf,
   evidenceToken,
   pdfSlotPlan,
   reasonText,
+  roomToFree,
   runningPdfState,
   startRunningPdf,
   type MonthKey,
@@ -231,10 +233,14 @@ export async function updateRunningMonth(
 
   const problems: string[] = [];
   let tooLarge = false;
+  let lacking: number | undefined;
   const write = (next: Uint8Array): string | undefined => {
     const refused = writePdfSlot(deps.vault, slot, next, deps.slotLimit, deps.vaultBudget);
     if (refused === undefined) return undefined;
-    if (typeof refused !== 'string') tooLarge = true;
+    if (typeof refused !== 'string') {
+      tooLarge = true;
+      lacking = refused.lacking;
+    }
     return refusalText(refused);
   };
   if (!pdf) {
@@ -245,8 +251,13 @@ export async function updateRunningMonth(
       return failedInfo(month, slot, `${RUNNING_PDF_TEXTS.failed}: ${reasonText(started.reason)}`);
     }
     const refused = write(started.value);
-    if (refused !== undefined)
-      return failedInfo(month, slot, `${RUNNING_PDF_TEXTS.failed}: ${refused}`);
+    if (refused !== undefined) {
+      const info = {
+        ...failedInfo(month, slot, `${RUNNING_PDF_TEXTS.failed}: ${refused}`),
+        tooLarge,
+      };
+      return lacking === undefined ? info : { ...info, lacking };
+    }
     pdf = started.value;
   }
   // each day is saved before the next one is drawn: a later failure keeps the days before it
@@ -283,13 +294,14 @@ export async function updateRunningMonth(
       }
     }
   }
-  return describeRunningPdf(
+  const info = await describeRunningPdf(
     month,
     slot,
     pdf,
     problems.length > 0 ? problems.join(' ') : null,
     tooLarge,
   );
+  return lacking === undefined ? info : { ...info, lacking };
 }
 
 /** The result of one run: how each file stands, the slot plan and what was saved out. */
@@ -300,8 +312,6 @@ export interface RunningPdfRun {
   plan: PdfSlotPlan;
   /** Months whose file was saved out (their markers), with the time of the confirmation. */
   saved: { month: MonthKey; at: string }[];
-  /** Problems outside a single month. */
-  problems: string[];
 }
 
 /**
@@ -312,7 +322,6 @@ export async function updateRunningPdfs(
   book: TimeBook,
   deps: RunningPdfDeps,
 ): Promise<RunningPdfRun> {
-  const problems: string[] = [];
   const today = clockFromDate(deps.now()).date;
   const first = pdfSlotPlan(today, contents(await readSlots(deps.vault)));
   const updated = new Map<string, RunningPdfInfo>();
@@ -322,8 +331,34 @@ export async function updateRunningPdfs(
     if (info) updated.set(use.slot, info);
   }
   const slots = await readSlots(deps.vault);
-  const tooLarge = [...updated.values()].filter((i) => i.tooLarge).map((i) => i.slot as PdfSlot);
-  const plan = pdfSlotPlan(today, contents(slots), tooLarge);
+  // a state over the vault's budget: first the previous month's file must go, when that makes the room
+  // (`roomToFree`); the file being written is marked too large only when it does not
+  const tooLarge: PdfSlot[] = [];
+  const room: PdfSlot[] = [];
+  const prev = first.previous;
+  for (const [slot, info] of updated) {
+    if (!info.tooLarge) continue;
+    const prevRead = prev ? slots[prev.slot].read : undefined;
+    const previous =
+      prev && prevRead?.kind === 'pdf'
+        ? { slot: prev.slot, chars: encodeRunningPdf(prevRead.pdf).length }
+        : null;
+    const free =
+      info.lacking === undefined
+        ? { slot: slot as PdfSlot, why: 'too-large' as const }
+        : roomToFree(slot as PdfSlot, info.lacking, previous);
+    if (free.why === 'too-large') tooLarge.push(free.slot);
+    else {
+      room.push(free.slot);
+      // this file goes on once the other is saved: not „too large“ (it is stamped and retried as usual)
+      updated.set(slot, {
+        ...info,
+        tooLarge: false,
+        problem: RUNNING_PDF_TEXTS.waitsForRoom(prev?.month ?? ''),
+      });
+    }
+  }
+  const plan = pdfSlotPlan(today, contents(slots), tooLarge, room);
   const infos: RunningPdfInfo[] = [];
   const saved: RunningPdfRun['saved'] = [];
   for (const slot of PDF_SLOTS) {
@@ -335,7 +370,7 @@ export async function updateRunningPdfs(
     else if (read.kind === 'saved') saved.push({ month: read.month, at: read.at });
     else if (content.kind === 'unreadable' && done) infos.push(done);
   }
-  return { infos, plan, saved, problems };
+  return { infos, plan, saved };
 }
 
 /**
@@ -384,4 +419,27 @@ export async function forgetPdfs(
     }
   }
   return undefined;
+}
+
+/**
+ * Purging months together with their running PDFs, in the order that cannot leave them out of step: the
+ * files go first; only when that worked are the months purged from the book (`purge`, which shows its own
+ * refusal). A refused `forget` leaves the book untouched (the months stay purgeable, so it can be tried
+ * again). `ok: false` without a text: the book write was refused and already shown.
+ */
+export async function purgeWithPdfs(
+  months: readonly MonthKey[],
+  steps: {
+    forget: (months: readonly MonthKey[]) => Promise<string | undefined>;
+    purge: () => boolean;
+  },
+): Promise<{ ok: true } | { ok: false; text?: string }> {
+  const refused = await steps.forget(months);
+  if (refused !== undefined) {
+    return {
+      ok: false,
+      text: `${refused} Es wurde nichts gelöscht; bitte erneut versuchen.`,
+    };
+  }
+  return steps.purge() ? { ok: true } : { ok: false };
 }

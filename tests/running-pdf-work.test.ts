@@ -13,6 +13,7 @@ import { clearPdfSlot, readPdfSlot, writePdfSlot } from '../src/io/runningPdfSto
 import {
   forgetPdfs,
   pdfInSlot,
+  purgeWithPdfs,
   releasePdf,
   stampRunningPdf,
   updateRunningPdfs,
@@ -312,4 +313,30 @@ describe('running monthly PDF in the app (store and run)', () => {
     expect(readPdfSlot(vault, 'monatspdf-b')).toEqual({ kind: 'none' });
     expect(pdfInSlot(vault, 'monatspdf-a')).toBeDefined();
   }, 60_000);
+});
+
+describe('purging months with their running PDFs (purgeWithPdfs)', () => {
+  it('the files go first: a refused forget purges nothing, so book and files stay in step', async () => {
+    const order: string[] = [];
+    const refused = await purgeWithPdfs(['2024-01'], {
+      forget: async () => (order.push('forget'), 'Speicher voll.'),
+      purge: () => (order.push('purge'), true),
+    });
+    expect(refused).toEqual({
+      ok: false,
+      text: 'Speicher voll. Es wurde nichts gelöscht; bitte erneut versuchen.',
+    });
+    expect(order).toEqual(['forget']);
+    order.length = 0;
+    expect(
+      await purgeWithPdfs(['2024-01'], {
+        forget: async () => (order.push('forget'), undefined),
+        purge: () => (order.push('purge'), true),
+      }),
+    ).toEqual({ ok: true });
+    expect(order).toEqual(['forget', 'purge']);
+    expect(
+      await purgeWithPdfs(['2024-01'], { forget: async () => undefined, purge: () => false }),
+    ).toEqual({ ok: false });
+  });
 });

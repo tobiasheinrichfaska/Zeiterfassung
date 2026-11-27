@@ -270,6 +270,16 @@ describe('comments and tag case', () => {
     expect(checkCsp(out).ok).toBe(true);
   });
 
+  it('addCsp inserts at the right place in the page even after a script with a body', () => {
+    const early = '<script>var a = "a long script body before the charset";</script>';
+    const src = `<!doctype html><html><head>${early}<meta charset="UTF-8" /><title>x</title></head><body><script>${js}</script></body></html>`;
+    const out = addCsp(src);
+    expect(out).toContain(early);
+    expect(out).toContain(
+      '<meta charset="UTF-8" />\n    <meta http-equiv="Content-Security-Policy"',
+    );
+  });
+
   it('tags are matched whatever their case', () => {
     const upper = `<!doctype html><html><head><META charset="UTF-8" /></head><body><SCRIPT>${js}</SCRIPT></body></html>`;
     const out = addCsp(upper);

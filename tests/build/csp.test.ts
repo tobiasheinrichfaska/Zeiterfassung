@@ -56,6 +56,24 @@ describe('withCsp', () => {
     expect(p).toContain(hash(js));
   });
 
+  it('inserts at the right place in the page even after a script, and never into a comment', () => {
+    const early = '<script>var a = "a long script body before the charset";</script>';
+    const src = `<!doctype html><html><head>${early}<meta charset="UTF-8" /><title>x</title></head><body><script>1</script></body></html>`;
+    const out = withCsp(src);
+    expect(out).toContain(early);
+    expect(out).toContain(
+      '<meta charset="UTF-8" />\n    <meta http-equiv="Content-Security-Policy"',
+    );
+    const commented = `<!doctype html><html><head><!-- <meta charset="UTF-8" /> --></head><body><script>1</script></body></html>`;
+    expect(() => withCsp(commented)).toThrow(/charset/);
+    const both = commented.replace('--></head>', '--><meta charset="UTF-8" /></head>');
+    expect(withCsp(both)).toContain('--><meta charset="UTF-8" />\n    <meta http-equiv');
+  });
+
+  it('upper-case tags count: an external <SCRIPT SRC> is refused', () => {
+    expect(() => withCsp(page('<SCRIPT SRC="x.js"></SCRIPT>'))).toThrow(/script from outside/);
+  });
+
   it('passes the relay origins on to connect-src', () => {
     const html = withCsp(page('<script>1</script>'), ['https://relay.example']);
     expect(policyOf(html)).toContain('connect-src https://relay.example;');

@@ -20,6 +20,7 @@ import {
   type TimeBook,
 } from '../src/logic/index.ts';
 import {
+  DROPPED_FOR_MS,
   RELAY_TIMEOUT_MS,
   createRelayService,
   requestAnchor,
@@ -169,6 +170,27 @@ describe('the relay adapter', () => {
     return { fn, seen };
   }
 
+  it('a retired service (key removed) signs and sends nothing more, also in a round already running', async () => {
+    const gone = new AbortController();
+    gone.abort();
+    const none = relay();
+    expect(
+      await relayService(RELAY, { fetch: none.fn, signal: gone.signal }).anchor(PROBE_HASH),
+    ).toEqual({ ok: false, reason: 'unreachable', detail: 'abgebrochen' });
+    expect(none.seen).toEqual([]);
+    // a round waits after a 502 of the first service: the key is removed meanwhile, the next service is not asked
+    const live = new AbortController();
+    const r = relay(json(502, { error: 'upstream' }), json(200, answer()));
+    const fn: typeof fetch = async (url, init) => {
+      const res = await r.fn(url, init);
+      live.abort();
+      return res;
+    };
+    const out = await relayService(RELAY, { fetch: fn, signal: live.signal }).anchor(PROBE_HASH);
+    expect(out.ok).toBe(false);
+    expect(r.seen).toHaveLength(1);
+  });
+
   it('posts only the hash (solo), signed, without cookies or redirects, and returns the verified evidence', async () => {
     const r = relay(json(200, answer()));
     const out = await relayService(RELAY + '/', { fetch: r.fn }).anchor(PROBE_HASH);
@@ -314,6 +336,54 @@ describe('the relay adapter', () => {
       detail: 'kein Dienst des Weiterreichers ist der App bekannt',
     });
     expect(none.seen).toHaveLength(4);
+  });
+
+  it('says unauthorized when the key may use none of the services (all 403 service-not-allowed)', async () => {
+    const r = relay(
+      ...['freetsa', 'sectigo', 'digicert', 'certum'].map(() =>
+        json(403, { error: 'service-not-allowed' }),
+      ),
+    );
+    expect(await relayService(RELAY, { fetch: r.fn }).anchor(PROBE_HASH)).toEqual({
+      ok: false,
+      reason: 'unauthorized',
+      detail: 'Status 403, Schlüssel für keinen dieser Dienste',
+    });
+    // a mix of 404 and 403 stays „refused“
+    const mixed = relay(
+      json(404, { error: 'unknown-service' }),
+      ...['sectigo', 'digicert', 'certum'].map(() => json(403, { error: 'service-not-allowed' })),
+    );
+    expect(await relayService(RELAY, { fetch: mixed.fn }).anchor(PROBE_HASH)).toMatchObject({
+      ok: false,
+      reason: 'refused',
+    });
+  });
+
+  it('forgets the services it left out after an hour on the monotonic clock', async () => {
+    const t = trustedServices();
+    const trusted = new Map([
+      ['sectigo', t.get('sectigo')!],
+      ['digicert', t.get('freetsa')!],
+    ]);
+    const r = relay(
+      json(403, { error: 'service-not-allowed' }),
+      json(200, answer({ service: 'digicert' })),
+      json(200, answer({ service: 'digicert' })),
+      json(200, answer({ service: 'sectigo' })),
+    );
+    const service = relayService(RELAY, { fetch: r.fn, trusted });
+    expect((await service.anchor(PROBE_HASH)).ok).toBe(true);
+    mono += DROPPED_FOR_MS - 1;
+    expect((await service.anchor(PROBE_HASH)).ok).toBe(true); // still left out: digicert again
+    mono += 1;
+    await service.anchor(PROBE_HASH); // asked again (the answer's service differs: refused, not the point)
+    expect(r.seen.map((x) => x.url.split('/').pop())).toEqual([
+      'sectigo',
+      'digicert',
+      'digicert',
+      'sectigo',
+    ]);
   });
 
   it('says so when the app knows no service at all', async () => {

@@ -53,13 +53,19 @@ export type StoredRunningPdf =
   /** Something is stored but it is no PDF: shown, never overwritten. */
   | { kind: 'unreadable' };
 
+/** The month and time of a slot's „gespeichert“ marker, or null (cheap: a PDF's text is not decoded). */
+export function savedMarkerOf(text: string | null): { month: MonthKey; at: string } | null {
+  if (text === null || !text.startsWith('gespeichert:')) return null;
+  const saved = SAVED_RE.exec(text);
+  if (!saved || !isMonthKey(saved[1] ?? '')) return null;
+  return { month: saved[1] ?? '', at: saved[2] ?? '' };
+}
+
 /** Reads a slot's text. Nothing (or the empty text a deleted month leaves) is `none`. */
 export function decodeRunningPdf(text: string | null): StoredRunningPdf {
   if (text === null || text === '') return { kind: 'none' };
-  const saved = SAVED_RE.exec(text);
-  if (saved && isMonthKey(saved[1] ?? '')) {
-    return { kind: 'saved', month: saved[1] ?? '', at: saved[2] ?? '' };
-  }
+  const saved = savedMarkerOf(text);
+  if (saved) return { kind: 'saved', ...saved };
   const pdf = base64ToBytes(text);
   if (pdf === null || pdf.length < 5) return { kind: 'unreadable' };
   const head = String.fromCharCode(...pdf.subarray(0, 5));
@@ -78,8 +84,11 @@ export interface PdfSaveRequest {
   slot: string;
   month: MonthKey;
   mode: 'reminder' | 'forced';
-  /** Why: the previous month's week is over or running, an older month, a second file of a month, or a state that did not fit. */
-  why: 'previous' | 'older' | 'too-large' | 'duplicate';
+  /**
+   * Why: the previous month's week is over or running, an older month, a second file of a month, a state
+   * that did not fit, or (`room`) the current month's new state did not fit the vault until this file is out.
+   */
+  why: 'previous' | 'older' | 'too-large' | 'duplicate' | 'room';
 }
 
 /** Where a month's file is kept: an existing file, or the slot to start it in. */
@@ -90,6 +99,8 @@ export interface PdfSlotUse {
 }
 
 export interface PdfSlotPlan {
+  /** The month of the day the plan was made for (a plan of an earlier month is stale). */
+  month: MonthKey;
   /** The current month's slot; null when it has none (`currentWaits` or `currentSaved` says why). */
   current: PdfSlotUse | null;
   /** The previous month's slot (its file, or within the first week a free slot to start it in). */
@@ -114,12 +125,16 @@ export interface PdfSlotPlan {
  * - a free slot is an empty one or one whose file was saved (its marker); a third month never enters:
  *   when the current month needs a slot and none is free, it waits until the older file is saved;
  * - the previous month is started only within its first week, and only when no marker says it was saved;
- * - `tooLarge`: slots whose next state did not fit (`PDF_SLOT_LIMIT`): their stored file must be saved.
+ *   within that week its marker is kept (the current month waits rather than overwrite it);
+ * - `tooLarge`: slots whose next state did not fit (`PDF_SLOT_LIMIT`): their stored file must be saved;
+ * - `room`: slots whose file must be saved first so that another slot's next state fits the vault's budget
+ *   (`roomToFree`).
  */
 export function pdfSlotPlan(
   today: DateKey,
   slots: Readonly<Record<PdfSlot, PdfSlotContent>>,
   tooLarge: readonly PdfSlot[] = [],
+  room: readonly PdfSlot[] = [],
 ): PdfSlotPlan {
   const current = monthOf(today);
   const previous = shiftMonth(current, -1);
@@ -151,14 +166,16 @@ export function pdfSlotPlan(
       why: 'previous',
     });
   }
-  for (const slot of tooLarge) {
+  const force = (slot: PdfSlot, why: 'too-large' | 'room') => {
     const c = slots[slot];
-    if (c.kind !== 'pdf') continue;
+    if (c.kind !== 'pdf') return;
     const i = save.findIndex((r) => r.slot === slot);
-    const request: PdfSaveRequest = { slot, month: c.month, mode: 'forced', why: 'too-large' };
+    const request: PdfSaveRequest = { slot, month: c.month, mode: 'forced', why };
     if (i >= 0) save[i] = request;
     else save.push(request);
-  }
+  };
+  for (const slot of room) force(slot, 'room');
+  for (const slot of tooLarge) force(slot, 'too-large');
 
   const savedMonths = new Set(free.flatMap((f) => (f.saved ? [f.saved] : [])));
   // a slot without a marker first, then one whose marker names a month that no longer matters
@@ -168,7 +185,10 @@ export function pdfSlotPlan(
   const currentSaved = cur === null && savedMonths.has(current);
   let currentWaits = false;
   if (cur === null && !currentSaved) {
-    const f = free.shift();
+    // within the first week the previous month's marker stays: without it that month would be started
+    // again as a new file
+    const i = free.findIndex((f) => !(withinWeek && f.saved === previous));
+    const f = i >= 0 ? free.splice(i, 1)[0] : undefined;
     if (f) cur = { month: current, slot: f.slot, exists: false };
     else currentWaits = true;
   }
@@ -177,7 +197,57 @@ export function pdfSlotPlan(
     if (f) prev = { month: previous, slot: f.slot, exists: false };
   }
   save.sort((a, b) => (a.mode === b.mode ? 0 : a.mode === 'forced' ? -1 : 1));
-  return { current: cur, previous: prev, currentWaits, currentSaved, save, unreadable, ahead };
+  return {
+    month: current,
+    current: cur,
+    previous: prev,
+    currentWaits,
+    currentSaved,
+    save,
+    unreadable,
+    ahead,
+  };
+}
+
+/** Room a slot's text gives back when its file is saved out (the marker that stays, with some margin). */
+const MARKER_CHARS = 64;
+
+/**
+ * Which file must be saved when the new state of the file in `writing` did not fit the vault's budget
+ * (`lacking` characters missing; not the slot limit): the previous month's file in the other slot
+ * (`previous`, its text `chars` long) when saving it out makes enough room — the current month is kept
+ * going then; otherwise the file being written itself (`too-large`, as for the slot limit).
+ */
+export function roomToFree(
+  writing: PdfSlot,
+  lacking: number,
+  previous: { slot: PdfSlot; chars: number } | null,
+): { slot: PdfSlot; why: 'room' | 'too-large' } {
+  if (previous && previous.slot !== writing && previous.chars - MARKER_CHARS >= lacking) {
+    return { slot: previous.slot, why: 'room' };
+  }
+  return { slot: writing, why: 'too-large' };
+}
+
+/**
+ * Whether the running PDFs need a run now (after a change of the book or on the retry timer): when no run
+ * has finished yet (the first one may have failed), when the last plan was made in an earlier month
+ * (month change), or when a day of a month in the plan ended and is not in its file yet.
+ */
+export function runningPdfDue(
+  book: TimeBook,
+  last:
+    | { plan: PdfSlotPlan; infos: readonly { month: MonthKey; days: readonly DateKey[] }[] }
+    | undefined,
+  today: DateKey,
+): boolean {
+  if (!last) return true;
+  if (last.plan.month !== monthOf(today)) return true;
+  return [last.plan.previous, last.plan.current].some((use) => {
+    if (!use) return false;
+    const info = last.infos.find((i) => i.month === use.month);
+    return daysToAppend(book, use.month, info?.days ?? [], today).length > 0;
+  });
 }
 
 /** Whether something must be saved before the app can be used again (the blocking prompt). */
@@ -212,6 +282,8 @@ export interface RunningPdfInfo {
   slot: string;
   /** The next state did not fit into the slot (`PDF_SLOT_LIMIT`): the stored file must be saved. */
   tooLarge: boolean;
+  /** With `tooLarge`: the characters the vault's budget (`VAULT_BUDGET`) lacked; absent for the slot limit. */
+  lacking?: number;
   /** The days in the file, in date order. */
   days: DateKey[];
   timeStamps: number;
