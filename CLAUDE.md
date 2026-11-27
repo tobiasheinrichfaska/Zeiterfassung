@@ -184,9 +184,10 @@ npm run build
   is blocked. The e2e scenario „all services time out (504)“ once failed with a leftover 429 pause text and passed
   on the rerun (timing-dependent; 49/49 on 2026-11-25).
 - **Device key and freshness (2026-11-25):** the key is usable (not readable) by anyone holding the unlocked
-  device. A token must not be older than the send time − 60 s nor later than now + 5 min; **when the device
-  clock differs from the relay's `Date` by more than 30 s, this window uses the relay's clock** (otherwise a
-  wrong device clock refuses genuine tokens) — then freshness rests on the relay's word about the time. The key
+  device. A token must not be older than the send time − 60 s nor later than now + 5 min, on the device clock;
+  the relay's `Date` may only **tighten** this window (one correction of at most 65 s after a 401, never a
+  looser one), so a device clock **more than 60 s ahead** gets genuine tokens refused as back-dated
+  (`not-verified`), one behind is corrected. From 30 s off the month page warns (`clockWarningText`). The key
   field is `type=password`, so a browser may offer to save it. Anchors in batch mode would need a new anchor
   format (later option). Checked only in headless Chromium against a local relay with test keys (`e2e/`:
   stamping 47/47 incl. no key, unknown key → 401, key without solo → 403; running PDF 53/53); `retention.cjs`
@@ -231,6 +232,21 @@ npm run build
   ahead hides later changes from retention (would need the chain position at export in the book format).
   e2e on 2026-11-27 (zeitstempel `c50a72e`): `stamping.cjs` 51/51, `pdfcheck.ts` 6/6 on its two fresh
   export PDFs (running-PDF and retention scripts not rerun).
+- **Audit fixes of 2026-11-27:** the plan notes (`slotPlanNotes`: current month waits, unreadable slot, file dated
+  after today) show in the forced overlay, the reminder banner (also a banner with notes only, `savePromptView`)
+  and the month page's running-PDF section. `addAnchor` checks `maxAnchors` against the **thinned** list (a new
+  anchor that replaces the day's own is never refused). **A month whose running PDF was saved out counts as covered
+  for thinning** like an export (design: no book field; `AnchorProvider` reads the „gespeichert“ markers of the two
+  slots, `savedPdfs(vault)`, and passes them to `addAnchor`/`thinAnchors`; covered only if nothing in the month was
+  recorded or changed after the marker's time, `unchangedSince`; a marker lives only while it is in its slot, but
+  anchors thinned meanwhile are gone for good). A write over `VAULT_BUDGET` (not `PDF_SLOT_LIMIT`) forces out the
+  previous month's file first when that frees the room (`roomToFree`, reason `room`; the current file is then not
+  „too large“ and goes on after the save), else the written file as before. `anchorNow` while a round runs awaits
+  it (`src/io/joinRound.ts`; one more round only when it did not fail and stamps are still open), so an export holds
+  its anchor. Services dropped after `404 unknown-service`/`403 service-not-allowed` are forgotten after one hour
+  (monotonic, `DROPPED_FOR_MS`); all dropped by 403 → `unauthorized` with the 403 text (`noServiceLeft`). The dead
+  `problems` of `updateRunningPdfs` is gone. e2e (zeitstempel `c50a72e`): running PDF 53/53, retention 17/17
+  (`stamping.cjs` not rerun). Not run on a real device.
 - One working day per date: a split shift (morning and evening) cannot be recorded as two shifts; use one
   day with a long pause.
 - The stamp clock trusts the device clock. Nothing proves the time (a later stage adds timestamps from a

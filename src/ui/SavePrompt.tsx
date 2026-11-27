@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import {
   SAVE_TEXTS,
-  forcedSave,
   monthLabel,
   runningPdfFileName,
   runningPdfLines,
   saveRequestText,
   clockFromDate,
-  slotPlanNotes,
+  savePromptView,
   type PdfSaveRequest,
 } from '../logic/index.ts';
 import { canShareFile, downloadFile, shareFile } from '../io/files.ts';
@@ -124,18 +123,18 @@ const overlay = {
  * The save prompt of the monthly files. Forced (a file past its week, an older one, one that grew too
  * large): it covers every page and cannot be closed until the file is saved and confirmed — the stamp
  * clock stays usable inside it, so recording times is never blocked. A reminder (the previous month in
- * its first week, files of the earlier build): a small banner that opens the same cards and can be put
+ * its first week): a small banner that opens the same cards and can be put
  * off until the next start.
  */
 export function SavePrompt() {
   const { plan } = useRunningPdf();
   const [open, setOpen] = useState(false);
   const [later, setLater] = useState(false);
-  if (!plan) return null;
-  const forced = forcedSave(plan);
-  const notes = slotPlanNotes(plan);
+  const view = savePromptView(plan);
+  if (view.kind === 'none') return null;
+  const { notes } = view;
 
-  if (forced.length > 0) {
+  if (view.kind === 'forced') {
     return (
       <div role="dialog" aria-modal="true" aria-label={SAVE_TEXTS.forcedTitle} style={overlay}>
         <div style={styles.page}>
@@ -144,7 +143,7 @@ export function SavePrompt() {
           {notes.map((n) => (
             <p key={n}>{n}</p>
           ))}
-          {forced.map((r) => (
+          {view.requests.map((r) => (
             <SaveCard key={`${r.slot}:${r.month}`} request={r} />
           ))}
         </div>
@@ -158,8 +157,8 @@ export function SavePrompt() {
     );
   }
 
-  const reminders = plan.save;
-  if (reminders.length === 0 || later) return null;
+  if (later) return null;
+  const reminders = view.kind === 'reminder' ? view.requests : [];
   if (!open) {
     return (
       <div
@@ -176,10 +175,17 @@ export function SavePrompt() {
           color: 'CanvasText',
         }}
       >
-        {SAVE_TEXTS.reminderTitle}: {reminders.map((r) => monthLabel(r.month)).join(', ')}{' '}
-        <button type="button" style={styles.button} onClick={() => setOpen(true)}>
-          {SAVE_TEXTS.saveButton} …
-        </button>{' '}
+        {notes.map((n) => (
+          <p key={n}>{n}</p>
+        ))}
+        {reminders.length > 0 && (
+          <>
+            {SAVE_TEXTS.reminderTitle}: {reminders.map((r) => monthLabel(r.month)).join(', ')}{' '}
+            <button type="button" style={styles.button} onClick={() => setOpen(true)}>
+              {SAVE_TEXTS.saveButton} …
+            </button>{' '}
+          </>
+        )}
         <button type="button" style={styles.button} onClick={() => setLater(true)}>
           {SAVE_TEXTS.laterButton}
         </button>
@@ -190,6 +196,9 @@ export function SavePrompt() {
     <div role="dialog" aria-label={SAVE_TEXTS.reminderTitle} style={overlay}>
       <div style={styles.page}>
         <h2>{SAVE_TEXTS.reminderTitle}</h2>
+        {notes.map((n) => (
+          <p key={n}>{n}</p>
+        ))}
         {reminders.map((r) => (
           <SaveCard key={`${r.slot}:${r.month}`} request={r} />
         ))}

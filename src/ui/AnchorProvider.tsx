@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   addAnchor,
+  anchorRequest,
   anchorStatus,
   clockFromDate,
   reasonText,
@@ -9,6 +10,8 @@ import {
 } from '../logic/index.ts';
 import type { Vault } from 'local-vault';
 import { createRelayService, requestAnchor } from '../io/anchorService.ts';
+import { joinRound } from '../io/joinRound.ts';
+import { savedPdfs } from '../io/runningPdfStore.ts';
 import {
   loadDeviceKey,
   removeDeviceKey as clearDeviceKey,
@@ -22,6 +25,8 @@ import { ALLOWED_RELAYS, audienceFor } from './relayConfig.ts';
 
 /** How often the app looks again while it is open (seals, status, and a new time stamp when one is due). */
 const SEAL_EVERY_MS = 60_000;
+
+type AnchorRoundResult = Awaited<ReturnType<AnchorApi['anchorNow']>>;
 const ANCHOR_EVERY_MS = 15 * 60_000;
 
 /**
@@ -45,7 +50,7 @@ export function AnchorProvider({
   const { book, getBook, apply, showError } = useBookApi();
   const [, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
-  const running = useRef(false);
+  const running = useRef<Promise<AnchorRoundResult> | undefined>(undefined);
   // the offset belongs to the service that learned it: a new service (other relay or key) starts at 0
   const [clock, setClock] = useState<{ owner: object; ms: number } | null>(null);
   const [deviceKey, setDeviceKey] = useState<DeviceKeyLoad | { kind: 'loading' }>({
@@ -115,29 +120,39 @@ export function AnchorProvider({
     if (sealed.value !== current) apply(sealed);
   }, [getBook, apply, showError]);
 
-  const anchorNow = useCallback(async () => {
-    if (running.current) return 'nothing' as const;
-    running.current = true;
+  /** One round with the service (never two at once: `joinRound`). */
+  const round = useCallback(async () => {
     setBusy(true);
     try {
-      const round = await requestAnchor(getBook(), service);
-      if (round.kind === 'failed') {
+      const done = await requestAnchor(getBook(), service);
+      if (done.kind === 'failed') {
         // a round of a service retired meanwhile (key removed) ended on purpose: no error for that
-        if (latestMade.current.service === service) showError(round.text);
+        if (latestMade.current.service === service) showError(done.text);
         return 'failed' as const;
       }
-      if (round.kind === 'anchor') {
-        // the book may have changed while the service answered: add to the book as it is now
-        return apply(addAnchor(getBook(), round.anchor, new Date().toISOString()))
+      if (done.kind === 'anchor') {
+        // the book may have changed while the service answered: add to the book as it is now; a month
+        // whose running PDF was saved out keeps its anchors in that file (`thinAnchors`)
+        const saved = savedPdfs(vault);
+        return apply(addAnchor(getBook(), done.anchor, new Date().toISOString(), saved))
           ? ('anchor' as const)
           : ('failed' as const);
       }
-      return round.kind;
+      return done.kind;
     } finally {
-      running.current = false;
       setBusy(false);
     }
-  }, [getBook, apply, showError, service]);
+  }, [getBook, apply, showError, service, vault]);
+
+  /**
+   * A time stamp now. While a round runs, its result is awaited (an export then holds its anchor); one more
+   * round follows only when it did not fail and the chain still has stamps no anchor covers.
+   */
+  const anchorNow = useCallback(
+    () =>
+      joinRound(running, round, (r) => r !== 'failed' && anchorRequest(getBook()) !== undefined),
+    [round, getBook],
+  );
 
   useEffect(() => {
     sealNow();

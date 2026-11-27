@@ -9,7 +9,7 @@ import {
   type TimeBook,
 } from './model.ts';
 import { chainHead, stampsOfMonth } from './stamps.ts';
-import { exportCovers } from './retention.ts';
+import { exportCovers, unchangedSince } from './retention.ts';
 import { monthIndex, monthOf } from './time.ts';
 import { isHash } from './sha256.ts';
 import { evidenceToken, hexToBase64Url, readEvidence, type Evidence } from './evidence.ts';
@@ -97,10 +97,16 @@ export function checkedEvidence(evidence: unknown, headHash: unknown): Evidence 
  * than what is covered, its evidence must pass `checkedEvidence` (strict form, the hash is that stamp's
  * hash, token within the size limit), and the time of the token must fit the device clock within the
  * tolerance (not long before the stamp it covers, not in the future). A refused anchor changes nothing.
- * After adding, the anchors are thinned (`thinAnchors`); the new one, the newest, always stays.
+ * After adding, the anchors are thinned (`thinAnchors`, with `savedPdfs`); the new one, the newest, always
+ * stays. Only the thinned list is held against `LIMITS.maxAnchors` (a new anchor that replaces an older one
+ * of the same day is never refused for the cap).
  */
-export function addAnchor(book: TimeBook, anchor: Anchor, nowIso: string): Result<TimeBook> {
-  if (book.anchors.length >= LIMITS.maxAnchors) return fail('too-many-anchors');
+export function addAnchor(
+  book: TimeBook,
+  anchor: Anchor,
+  nowIso: string,
+  savedPdfs: readonly SavedPdf[] = [],
+): Result<TimeBook> {
   if (!Number.isInteger(anchor.coveredN) || !isHash(anchor.headHash)) return fail('bad-anchor');
   const evidence = checkedEvidence(anchor.evidence, anchor.headHash);
   if (!evidence) return fail('bad-anchor');
@@ -117,7 +123,9 @@ export function addAnchor(book: TimeBook, anchor: Anchor, nowIso: string): Resul
     anchors: [...book.anchors, { coveredN: anchor.coveredN, headHash: anchor.headHash, evidence }],
   };
   // older anchors that nothing needs any more go (`thinAnchors`): the book stays small
-  return ok({ ...added, anchors: thinAnchors(added, nowIso) });
+  const anchors = thinAnchors(added, nowIso, savedPdfs);
+  if (anchors.length > LIMITS.maxAnchors) return fail('too-many-anchors');
+  return ok({ ...added, anchors });
 }
 
 /**
@@ -141,6 +149,13 @@ export function anchorsForStamps(anchors: readonly Anchor[], stamps: readonly St
   return anchors.filter((_, i) => pick.has(i));
 }
 
+/** A month whose running PDF the employee saved out and confirmed (its marker in the vault). */
+export interface SavedPdf {
+  month: MonthKey;
+  /** When the save was confirmed (ISO, device clock). */
+  at: string;
+}
+
 const monthAt = (index: number): MonthKey =>
   `${String(Math.floor(index / 12)).padStart(4, '0')}-${String((index % 12) + 1).padStart(2, '0')}`;
 
@@ -150,12 +165,18 @@ const monthAt = (index: number): MonthKey =>
  * 1. per calendar day of the token's time (UTC date of `genTime`) only the **newest** anchor of that day;
  * 2. of those, only the ones a month still needs to show (`anchorsForStamps` over that month's stamps), for
  *    the months with stamps that are the current or the previous month (UTC month of `nowIso`) or that an
- *    export does not cover (never exported, or changed after the export): an exported month's anchors are
- *    in its exported PDF;
+ *    export does not cover (never exported, or changed after the export) and whose running PDF was not
+ *    saved out (`savedPdfs`, the markers `gespeichert:JJJJ-MM:<time>` of the vault, with nothing in the
+ *    month recorded or changed after that time): an exported month's anchors are in its exported PDF, a
+ *    saved running PDF holds them in its attachments;
  * 3. always the newest anchor of all (it holds `coveredUpTo`, so the status never changes).
  * Order is kept; nothing is added.
  */
-export function thinAnchors(book: TimeBook, nowIso: string): Anchor[] {
+export function thinAnchors(
+  book: TimeBook,
+  nowIso: string,
+  savedPdfs: readonly SavedPdf[] = [],
+): Anchor[] {
   const anchors = book.anchors;
   if (anchors.length <= 1) return anchors;
   const lastOfDay = new Map<string, number>();
@@ -167,7 +188,10 @@ export function thinAnchors(book: TimeBook, nowIso: string): Anchor[] {
   const months = new Set(book.stamps.map((s) => monthOf(s.date)));
   const keep = new Set<Anchor>([anchors[anchors.length - 1] as Anchor]);
   for (const month of months) {
-    if (!recent.has(month) && exportCovers(book, month)) continue;
+    const covered =
+      exportCovers(book, month) ||
+      savedPdfs.some((p) => p.month === month && unchangedSince(book, month, p.at));
+    if (!recent.has(month) && covered) continue;
     for (const a of anchorsForStamps(daily, stampsOfMonth(book, month))) keep.add(a);
   }
   return anchors.filter((a) => keep.has(a));

@@ -32,7 +32,7 @@ const assets = (): PdfAssets => (fonts ??= pdfAssets());
 
 /**
  * Keeps the running monthly PDFs (in two slots: current month and, for at most a week, previous month)
- * up to date: at the start (moving files of the earlier build once), after every change of the book that
+ * up to date: at the start, after every change of the book that
  * ends a day, when the time stamp service becomes available, every 15 minutes while a state is unstamped
  * and every hour (the date may have changed). Runs one after the other, never two at once. Shows the
  * save prompt (forced from the 8th, a reminder before) above the pages.
@@ -52,9 +52,8 @@ export function RunningPdfProvider({ vault, children }: { vault: Vault; children
     (next: RunningPdfRun) => {
       known.set(next);
       setRun(next);
-      if (next.problems.length > 0) showError(next.problems.join(' '));
     },
-    [known, showError],
+    [known],
   );
 
   /** Runs `work` after the run going on (one at a time). */

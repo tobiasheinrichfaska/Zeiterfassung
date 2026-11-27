@@ -225,17 +225,16 @@ describe('addAnchor', () => {
     });
   });
 
-  it('refuses when the book already holds the most anchors', () => {
+  it('holds the cap against the thinned list: a full book of one day’s anchors takes a new one', () => {
     const full: TimeBook = {
       ...b,
       anchors: Array.from({ length: LIMITS.maxAnchors }, (_, i) =>
         anchorFor(b, 1, { coveredN: -i }),
       ),
     };
-    expect(addAnchor(full, anchorFor(b, 2), now)).toEqual({
-      ok: false,
-      reason: 'too-many-anchors',
-    });
+    // all of one day: thinned to the newest (the new one); the cap case is in audit-2026-11-27.test.ts
+    const r = addAnchor(full, anchorFor(b, 2), now);
+    expect(r.ok && r.value.anchors.map((a) => a.coveredN)).toEqual([2]);
   });
 });
 
