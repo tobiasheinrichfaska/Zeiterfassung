@@ -12,11 +12,13 @@ import {
   purgeExpired,
   reasonText,
   replaceQuestion,
+  restoreRefusal,
   retentionReport,
   sealBackup,
 } from '../logic/index.ts';
 import { readVerifiedBackup } from '../io/anchorCheck.ts';
 import { downloadFile, readFileText } from '../io/files.ts';
+import { purgeWithPdfs } from '../io/runningPdfWork.ts';
 import { useBookApi } from './bookContext.ts';
 import { useRunningPdf } from './runningPdfContext.ts';
 import { styles } from './styles.ts';
@@ -30,7 +32,7 @@ interface WaitingFile {
 }
 
 export function BackupPage() {
-  const { book, apply, showError } = useBookApi();
+  const { book, getBook, apply, showError } = useBookApi();
   const runningPdf = useRunningPdf();
   const [info, setInfo] = useState<string | undefined>();
   const [encrypt, setEncrypt] = useState(true);
@@ -84,11 +86,10 @@ export function BackupPage() {
     try {
       const read = await readVerifiedBackup(text, pw);
       if (!read.ok) {
-        if (read.reason === 'password-required') return setWaiting({ name, text });
-        if (read.reason === 'wrong-password') setWaiting({ name, text });
-        return showError(
-          `Die Datei „${name}“ kann nicht eingespielt werden: ${reasonText(read.reason)}`,
-        );
+        const refusal = restoreRefusal(read.reason, pw !== undefined, name);
+        if (refusal.askPassword) setWaiting({ name, text });
+        if (refusal.text !== null) showError(refusal.text);
+        return;
       }
       setWaiting(undefined);
       setRestorePassword('');
@@ -130,10 +131,11 @@ export function BackupPage() {
   const purge = async () => {
     const names = report.purgeable.map(monthLabel).join(', ');
     if (!confirm(`Diese exportierten Monate jetzt von diesem Gerät löschen: ${names}?`)) return;
-    if (!apply(okResult(purgeExpired(book, today)))) return;
-    // running monthly PDFs of these months still in the app go with them
-    const refused = await runningPdf.forget(report.purgeable);
-    if (refused !== undefined) return showError(refused);
+    const purged = await purgeWithPdfs(report.purgeable, {
+      forget: runningPdf.forget,
+      purge: () => apply(okResult(purgeExpired(getBook(), today))),
+    });
+    if (!purged.ok) return purged.text ? showError(purged.text) : undefined;
     setInfo('Die Monate wurden gelöscht.');
   };
 

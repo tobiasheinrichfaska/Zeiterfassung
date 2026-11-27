@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { Vault } from 'local-vault';
 import {
   clockFromDate,
-  daysToAppend,
+  runningPdfDue,
   type MonthKey,
   type PdfAssets,
   type PdfSlotPlan,
@@ -102,30 +102,27 @@ export function RunningPdfProvider({ vault, children }: { vault: Vault; children
     refresh();
   }, [service, needsKey, latestService, latestNeedsKey, refresh]);
 
-  // a day that ended (or was entered) and is not in its file yet
+  // a day that ended (or was entered) and is not in its file yet; also when no run finished yet or the
+  // last plan is of an earlier month
   useEffect(() => {
-    const last = known.get();
-    if (!last) return;
-    const today = clockFromDate(new Date()).date;
-    const due = [last.plan.previous, last.plan.current].some((use) => {
-      if (!use) return false;
-      const info = last.infos.find((i) => i.month === use.month);
-      return daysToAppend(book, use.month, info?.days ?? [], today).length > 0;
-    });
-    if (due) refresh();
+    if (runningPdfDue(book, known.get(), clockFromDate(new Date()).date)) refresh();
   }, [book, known, refresh]);
 
   useEffect(() => {
     const id = setInterval(() => {
       const last = known.get();
-      if (last?.infos.some((i) => !i.newestStamped && i.days.length > 0 && !i.tooLarge)) refresh();
+      if (
+        runningPdfDue(getBook(), last, clockFromDate(new Date()).date) ||
+        last?.infos.some((i) => !i.newestStamped && i.days.length > 0 && !i.tooLarge)
+      )
+        refresh();
     }, RETRY_EVERY_MS);
     const hourly = setInterval(refresh, PLAN_EVERY_MS);
     return () => {
       clearInterval(id);
       clearInterval(hourly);
     };
-  }, [known, refresh]);
+  }, [known, refresh, getBook]);
 
   const months = useMemo(
     () =>

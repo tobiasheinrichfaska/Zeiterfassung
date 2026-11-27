@@ -178,15 +178,18 @@ describe('seals', () => {
     expect(sealed(b, '2026-11-26').stamps.map((x) => x.kind)).toEqual(['change', 'seal', 'change']);
   });
 
-  it('refuses everything when the chain has no room for all seals (the book stays as it was)', () => {
+  it('a nearly full chain seals the oldest days that fit; refused only when not one fits', () => {
     let b = bookWith(day({ date: '2026-11-20' }), day({ date: '2026-11-21' }));
     for (let i = 0; i < LIMITS.maxStamps - 1; i += 1)
       b = val(appendStamp(b, 'change', '2026-11-20', iso(23)));
-    expect(sealElapsedDays(b, '2026-11-25', iso(25))).toEqual({
+    const some = val(sealElapsedDays(b, '2026-11-25', iso(25)));
+    expect(some.stamps).toHaveLength(LIMITS.maxStamps);
+    expect(some.stamps.at(-1)).toMatchObject({ kind: 'seal', date: '2026-11-20' });
+    expect(b.stamps).toHaveLength(LIMITS.maxStamps - 1); // the input is not changed
+    expect(sealElapsedDays(some, '2026-11-25', iso(25))).toEqual({
       ok: false,
       reason: 'too-many-stamps',
     });
-    expect(b.stamps).toHaveLength(LIMITS.maxStamps - 1);
   });
 });
 

@@ -89,7 +89,8 @@ export function appendStamp(
 
 /**
  * One `seal` stamp for every day that has ended (date before today, with a departure) and has none yet.
- * A running day is sealed once it is closed. Nothing changes when there is nothing to seal.
+ * A running day is sealed once it is closed. Nothing changes when there is nothing to seal. A chain that
+ * has room for only some of them seals as many as fit (oldest first); `too-many-stamps` only when not one fits.
  */
 export function sealElapsedDays(book: TimeBook, today: DateKey, nowIso: string): Result<TimeBook> {
   const sealed = new Set(book.stamps.filter((s) => s.kind === 'seal').map((s) => s.date));
@@ -100,7 +101,7 @@ export function sealElapsedDays(book: TimeBook, today: DateKey, nowIso: string):
   let next = book;
   for (const date of due) {
     const r = appendStamp(next, 'seal', date, nowIso);
-    if (!r.ok) return r;
+    if (!r.ok) return next === book ? r : ok(next);
     next = r.value;
   }
   return ok(next);

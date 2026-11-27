@@ -57,7 +57,11 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
   start, when an ended day is missing, when the relay changes and every 15 minutes while unstamped; one run
   at a time; the unstamped state is kept and shown on failure. The stamp chain and `anchors` **both stay**.
   Free services first (qualified later, only in the relay). A day reopened after it was appended shows its
-  later state only on the next day's page.
+  later state only on the next day's page; **a correction after the month's last day page (the last day of the
+  month, or any day once no later day follows) never reaches that month's running PDF** (only the export PDF
+  of the month shows it; not fixed, 2026-11-27). A run is also due when none finished yet or the last plan is
+  of an earlier month (`runningPdfDue`). Within the first week of a month the previous month's „gespeichert“
+  marker is never overwritten (the current month waits instead; else that month was started again).
 - **Base library `pdf-fortschreiben`** (incremental PDF revisions, PDF/A-3 attachments, PAdES document time
   stamps) lives in its own repository `tobiasheinrichfaska/pdf-fortschreiben` (extracted 2026-11-24 with its
   history). The app uses it by the commit pin above: `src/logic/runningPdf.ts` draws each day page through
@@ -159,7 +163,7 @@ npm run build
 - The backup file is **encrypted with a password by default** (PBKDF2-SHA-256, 600000 rounds → AES-256-GCM, header bound as authenticated data). An unencrypted file is possible only after an explicit choice and a warning; reading accepts both. A lost password cannot be recovered, and a wrong password cannot be told from a changed file. The password rule is only length (8 to 256 characters); no strength meter.
 - **Time stamps (format 3).** Every finished write to a day is chained in `stamps` (SHA-256 over canonical JSON, gapless numbers, `prev`/`hash`, `skew` for a clock that went back) and every ended day gets one `seal`; the chain holds hashes, never times or notes, and **the internal times are the device clock: they prove no time**. Only `anchors` (tokens of an external time stamping service) prove one. **The app can meet „at the latest every 24 hours“ only while it is open and online**: a web page has no background; `overdue` is recognised, shown (month page, report) and not prevented. The pause after a 429 is measured on the monotonic clock (a device clock set back must not stretch it; a bug found in the second headless run). A relay sees the time and network address of a request, never any content (only a hash is sent). Free stamping services are not qualified. The relay protocol is the real one of the `zeitstempel` package (`docs/relay.md`); **no real stamping service and no deployed relay was ever used** (tested against a local relay with a test PKI, and the library's recorded real tokens, see below). The app verifies each token itself (hash, signature, certificate chain to the shipped anchors, certificate validity at the token's time) but, like the library, **not revocation, name constraints or policies** (`zeitstempel/docs/grenzen.md`); tokens read from a backup are not re-verified. An anchor stores the verified token's time and serial, not the relay's claims. The free services are not qualified; a relay's service list is a choice of the relay, the app takes the first service it has anchors for and tries up to three.
 - Anchors need the build variable `VITE_TIMESTAMP_RELAY` (the page's policy then allows exactly those origins); without it the app cannot reach any service and says „Kein externer Zeitstempeldienst eingerichtet“. An address typed in later works only if it is one of the build's (the setting is a choice among them).
-- The chain is limited (6000 stamps, about 6 per day ≈ 3 years in the browser's storage); a full chain **refuses new writes** with a message; purging shortens it only for months without days that an anchor covers (or when no relay is set). The stamp dates and hashes of purged months stay (no times, no notes). The change log and the chain are **not tamper-proof against someone who holds the unlocked device** (they can rewrite everything and recompute the hashes); only an anchor made before that proves the earlier state.
+- The chain is limited (6000 stamps, about 6 per day ≈ 3 years in the browser's storage); a full chain **refuses new writes** with a message (sealing seals as many ended days as still fit, oldest first); purging shortens it only for months without days that an anchor covers (or when no relay is set). The stamp dates and hashes of purged months stay (no times, no notes). The change log and the chain are **not tamper-proof against someone who holds the unlocked device** (they can rewrite everything and recompute the hashes); only an anchor made before that proves the earlier state.
 - Real-time stamp actions (Kommen, Pause, Gehen) are not in the change log (decision) but are in the stamp chain.
 - The page the wheels were on is remembered in the browser's plain storage (key `ze-seite`, only the page's node id); when the storage is blocked the wheels start on the first page. A form being typed is kept in memory and, encrypted, in the vault slot `draft` (survives swiping away and closing the app; removed on saving or discarding); a draft that does not pass the strict reader is dropped silently.
 - The app lock texts come from `local-vault` (German texts passed in `src/ui/vault.ts`).
@@ -217,6 +221,16 @@ npm run build
   `docs/data-model.html`). e2e after the fixes and the switch to trust per service (`07f4c32`,
   2026-11-26): stamping 51/51, running PDF 53/53, retention 17/17, `pdfcheck.ts` 15/15 (reads anchors as evidence
   v1 from every attachment, every token `openssl ts -verify` OK).
+- **Low findings of 2026-11-25, rechecked 2026-11-27:** removing or replacing the device key (or changing the
+  relay) retires the old service (`signal` of `createRelayService`): a round still running sends and signs
+  nothing more and its failure is not shown; purging months removes their running PDFs **first** and purges the
+  book only when that worked (`purgeWithPdfs`); an empty password in the restore form is said
+  (`restoreRefusal`); `withCsp` (and `einzeldatei-csp`'s `addCsp`) find `<meta charset>` outside comments, match
+  tags in any case and insert at the right position after a script with a body. **Not fixed:** whether a month
+  was changed after its export (`exportCovers`) compares device-clock times: an export made with a clock far
+  ahead hides later changes from retention (would need the chain position at export in the book format).
+  e2e on 2026-11-27 (zeitstempel `c50a72e`): `stamping.cjs` 51/51, `pdfcheck.ts` 6/6 on its two fresh
+  export PDFs (running-PDF and retention scripts not rerun).
 - One working day per date: a split shift (morning and evening) cannot be recorded as two shifts; use one
   day with a long pause.
 - The stamp clock trusts the device clock. Nothing proves the time (a later stage adds timestamps from a

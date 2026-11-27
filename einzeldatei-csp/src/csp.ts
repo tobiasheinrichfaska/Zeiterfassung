@@ -92,9 +92,15 @@ function maskComments(html: string): string {
   return out;
 }
 
-/** The page's own markup: the bundled code may mention tags as text, so script bodies are emptied. */
+/**
+ * The page's own markup: the bundled code may mention tags as text, so script bodies are blanked out
+ * (same length, so a position found here is the same position in the page).
+ */
 function markupOf(html: string): string {
-  return html.replace(SCRIPT, (_all, attrs: string) => `<script${attrs}></script>`);
+  return html.replace(SCRIPT, (all: string, _attrs: string, body: string) => {
+    const open = all.length - body.length - '</script>'.length;
+    return all.slice(0, open) + body.replace(/[^\n]/g, ' ') + all.slice(open + body.length);
+  });
 }
 
 /**

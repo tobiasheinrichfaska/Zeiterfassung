@@ -7,6 +7,7 @@ import {
   forcedSave,
   pdfFitsSlot,
   pdfSlotPlan,
+  runningPdfDue,
   runningPdfFileName,
   runningPdfLines,
   saveRequestText,
@@ -161,6 +162,25 @@ describe('running monthly PDF: which slot holds what (pdfSlotPlan)', () => {
     expect(after.currentWaits).toBe(false);
   });
 
+  it("the previous month's marker is not overwritten within its week (it would be started again)", () => {
+    const s = slots(saved('2026-11'), pdf('2026-10'));
+    const p = pdfSlotPlan('2026-12-03', s);
+    expect(p.current).toBeNull();
+    expect(p.currentWaits).toBe(true);
+    expect(p.previous).toBeNull();
+    expect(forcedSave(p).map((r) => r.month)).toEqual(['2026-10']);
+    // the older file saved: the current month takes that slot, the marker stays
+    const after = pdfSlotPlan('2026-12-03', slots(saved('2026-11'), saved('2026-10')));
+    expect(after.current).toEqual({ month: '2026-12', slot: 'monatspdf-b', exists: false });
+    expect(after.previous).toBeNull();
+    // from the 8th the marker no longer matters: the current month may take its slot
+    expect(pdfSlotPlan('2026-12-08', s).current).toEqual({
+      month: '2026-12',
+      slot: 'monatspdf-a',
+      exists: false,
+    });
+  });
+
   it('both slots full with current and previous: nothing to move, only the reminder', () => {
     const p = pdfSlotPlan('2026-12-05', slots(pdf('2026-12'), pdf('2026-11')));
     expect(p.current).toEqual({ month: '2026-12', slot: 'monatspdf-a', exists: true });
@@ -223,5 +243,24 @@ describe('running monthly PDF: which slot holds what (pdfSlotPlan)', () => {
     expect(saveRequestText({ ...r, why: 'too-large', mode: 'forced' }, '2026-11-08')).toContain(
       'zu groß',
     );
+  });
+});
+
+describe('running monthly PDF: when a run is due (runningPdfDue)', () => {
+  const b = bookWith(day({ date: '2026-11-02' }), day({ date: '2026-12-01' }));
+  const plan = (today: string) => pdfSlotPlan(today, slots(pdf('2026-11'), empty));
+  it('no run finished yet (the first may have failed): due', () => {
+    expect(runningPdfDue(b, undefined, '2026-11-20')).toBe(true);
+  });
+  it('a day not yet in its file: due; all in: not due', () => {
+    const p = plan('2026-11-20');
+    expect(runningPdfDue(b, { plan: p, infos: [] }, '2026-11-20')).toBe(true);
+    const infos = [{ month: '2026-11', days: ['2026-11-02'] }];
+    expect(runningPdfDue(b, { plan: p, infos }, '2026-11-20')).toBe(false);
+  });
+  it('a plan of the earlier month is stale after the month change', () => {
+    const infos = [{ month: '2026-11', days: ['2026-11-02'] }];
+    expect(runningPdfDue(b, { plan: plan('2026-11-30'), infos }, '2026-12-01')).toBe(true);
+    expect(plan('2026-11-30').month).toBe('2026-11');
   });
 });

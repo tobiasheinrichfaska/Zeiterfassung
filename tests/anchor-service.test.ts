@@ -169,6 +169,27 @@ describe('the relay adapter', () => {
     return { fn, seen };
   }
 
+  it('a retired service (key removed) signs and sends nothing more, also in a round already running', async () => {
+    const gone = new AbortController();
+    gone.abort();
+    const none = relay();
+    expect(
+      await relayService(RELAY, { fetch: none.fn, signal: gone.signal }).anchor(PROBE_HASH),
+    ).toEqual({ ok: false, reason: 'unreachable', detail: 'abgebrochen' });
+    expect(none.seen).toEqual([]);
+    // a round waits after a 502 of the first service: the key is removed meanwhile, the next service is not asked
+    const live = new AbortController();
+    const r = relay(json(502, { error: 'upstream' }), json(200, answer()));
+    const fn: typeof fetch = async (url, init) => {
+      const res = await r.fn(url, init);
+      live.abort();
+      return res;
+    };
+    const out = await relayService(RELAY, { fetch: fn, signal: live.signal }).anchor(PROBE_HASH);
+    expect(out.ok).toBe(false);
+    expect(r.seen).toHaveLength(1);
+  });
+
   it('posts only the hash (solo), signed, without cookies or redirects, and returns the verified evidence', async () => {
     const r = relay(json(200, answer()));
     const out = await relayService(RELAY + '/', { fetch: r.fn }).anchor(PROBE_HASH);

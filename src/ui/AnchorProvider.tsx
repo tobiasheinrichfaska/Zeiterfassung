@@ -54,20 +54,32 @@ export function AnchorProvider({
   const relay = book.settings.timestampRelay;
   const relayAvailable = relayUsable(relay, ALLOWED_RELAYS);
   const key = deviceKey.kind === 'key' ? deviceKey.key : undefined;
-  const { service, owner } = useMemo(() => {
+  const made = useMemo(() => {
     const own = {};
+    // aborted when this service is replaced (key removed or changed, other relay): a round still running
+    // then signs nothing more with the old key
+    const retire = new AbortController();
     return {
       owner: own,
+      retire,
       service:
         relayAvailable && key
           ? createRelayService(relay, key, {
               audience: audienceFor(relay),
               onClockOffset: (ms: number) => setClock({ owner: own, ms }),
+              signal: retire.signal,
             })
           : undefined,
     };
   }, [relayAvailable, relay, key]);
+  const { service, owner } = made;
   const clockOffsetMs = clock?.owner === owner ? clock.ms : 0;
+  const latestMade = useRef(made);
+  useEffect(() => {
+    // no cleanup on purpose: StrictMode's second run must not retire the service in use
+    if (latestMade.current !== made) latestMade.current.retire.abort();
+    latestMade.current = made;
+  }, [made]);
 
   useEffect(() => {
     let live = true;
@@ -110,7 +122,8 @@ export function AnchorProvider({
     try {
       const round = await requestAnchor(getBook(), service);
       if (round.kind === 'failed') {
-        showError(round.text);
+        // a round of a service retired meanwhile (key removed) ended on purpose: no error for that
+        if (latestMade.current.service === service) showError(round.text);
         return 'failed' as const;
       }
       if (round.kind === 'anchor') {

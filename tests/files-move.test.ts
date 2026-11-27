@@ -5,6 +5,7 @@ import {
   moveWorkday,
   pdfFileName,
   replaceQuestion,
+  restoreRefusal,
   setWorkday,
 } from '../src/logic/index.ts';
 import { CTX, NOW, bookWith, day, val } from './helpers.ts';
@@ -94,5 +95,22 @@ describe('file names and descriptions', () => {
     expect(q).toContain('2 Arbeitstag(e) von Do 01.10.2026 bis Fr 02.10.2026');
     expect(q).toContain('geht verloren');
     expect(replaceQuestion(emptyBook(), emptyBook())).toContain('keine Arbeitstage');
+  });
+});
+
+describe('restoreRefusal (the restore form)', () => {
+  it('asks for the password silently only the first time; an empty password entered is said', () => {
+    expect(restoreRefusal('password-required', false, 'a.json')).toEqual({
+      askPassword: true,
+      text: null,
+    });
+    expect(restoreRefusal('password-required', true, 'a.json')).toEqual({
+      askPassword: true,
+      text: 'Diese Sicherung ist verschlüsselt. Bitte das Passwort eingeben.',
+    });
+    const wrong = restoreRefusal('wrong-password', true, 'a.json');
+    expect(wrong.askPassword).toBe(true);
+    expect(wrong.text).toContain('„a.json“ kann nicht eingespielt werden');
+    expect(restoreRefusal('bad-backup', false, 'a.json').askPassword).toBe(false);
   });
 });

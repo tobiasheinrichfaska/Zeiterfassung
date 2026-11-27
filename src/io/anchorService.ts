@@ -63,6 +63,12 @@ export interface RelayOptions {
   trusted?: ReadonlyMap<string, { anchors: string[] }>;
   /** Called with the relay's clock minus the device clock (ms) when it moves by over 30 s, and with 0 when it is back within 30 s. */
   onClockOffset?: (offsetMs: number) => void;
+  /**
+   * Ends this service for good once aborted: a stamp running then stops before its next send (nothing more
+   * is signed with this device key), and every later call fails at once. Aborted when the device key is
+   * removed or replaced, or the relay changes.
+   */
+  signal?: AbortSignal;
 }
 
 const VERIFY_TEXTS: Record<string, string> = {
@@ -274,7 +280,10 @@ export function createRelayService(
                 detail: 'kein Dienst des Weiterreichers ist der App bekannt',
               };
         }
-        const stamped = await client.stamp(hash, { mode: 'solo' });
+        const stamped = await client.stamp(
+          hash,
+          options.signal ? { mode: 'solo', signal: options.signal } : { mode: 'solo' },
+        );
         if (stamped.ok) return { ok: true, value: { evidence: stamped.value } };
         if (serviceMissing(stamped)) {
           const service = stamped.detail;

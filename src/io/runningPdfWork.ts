@@ -385,3 +385,26 @@ export async function forgetPdfs(
   }
   return undefined;
 }
+
+/**
+ * Purging months together with their running PDFs, in the order that cannot leave them out of step: the
+ * files go first; only when that worked are the months purged from the book (`purge`, which shows its own
+ * refusal). A refused `forget` leaves the book untouched (the months stay purgeable, so it can be tried
+ * again). `ok: false` without a text: the book write was refused and already shown.
+ */
+export async function purgeWithPdfs(
+  months: readonly MonthKey[],
+  steps: {
+    forget: (months: readonly MonthKey[]) => Promise<string | undefined>;
+    purge: () => boolean;
+  },
+): Promise<{ ok: true } | { ok: false; text?: string }> {
+  const refused = await steps.forget(months);
+  if (refused !== undefined) {
+    return {
+      ok: false,
+      text: `${refused} Es wurde nichts gelöscht; bitte erneut versuchen.`,
+    };
+  }
+  return steps.purge() ? { ok: true } : { ok: false };
+}

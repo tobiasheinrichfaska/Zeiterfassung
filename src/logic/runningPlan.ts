@@ -90,6 +90,8 @@ export interface PdfSlotUse {
 }
 
 export interface PdfSlotPlan {
+  /** The month of the day the plan was made for (a plan of an earlier month is stale). */
+  month: MonthKey;
   /** The current month's slot; null when it has none (`currentWaits` or `currentSaved` says why). */
   current: PdfSlotUse | null;
   /** The previous month's slot (its file, or within the first week a free slot to start it in). */
@@ -114,6 +116,7 @@ export interface PdfSlotPlan {
  * - a free slot is an empty one or one whose file was saved (its marker); a third month never enters:
  *   when the current month needs a slot and none is free, it waits until the older file is saved;
  * - the previous month is started only within its first week, and only when no marker says it was saved;
+ *   within that week its marker is kept (the current month waits rather than overwrite it);
  * - `tooLarge`: slots whose next state did not fit (`PDF_SLOT_LIMIT`): their stored file must be saved.
  */
 export function pdfSlotPlan(
@@ -168,7 +171,10 @@ export function pdfSlotPlan(
   const currentSaved = cur === null && savedMonths.has(current);
   let currentWaits = false;
   if (cur === null && !currentSaved) {
-    const f = free.shift();
+    // within the first week the previous month's marker stays: without it that month would be started
+    // again as a new file
+    const i = free.findIndex((f) => !(withinWeek && f.saved === previous));
+    const f = i >= 0 ? free.splice(i, 1)[0] : undefined;
     if (f) cur = { month: current, slot: f.slot, exists: false };
     else currentWaits = true;
   }
@@ -177,7 +183,37 @@ export function pdfSlotPlan(
     if (f) prev = { month: previous, slot: f.slot, exists: false };
   }
   save.sort((a, b) => (a.mode === b.mode ? 0 : a.mode === 'forced' ? -1 : 1));
-  return { current: cur, previous: prev, currentWaits, currentSaved, save, unreadable, ahead };
+  return {
+    month: current,
+    current: cur,
+    previous: prev,
+    currentWaits,
+    currentSaved,
+    save,
+    unreadable,
+    ahead,
+  };
+}
+
+/**
+ * Whether the running PDFs need a run now (after a change of the book or on the retry timer): when no run
+ * has finished yet (the first one may have failed), when the last plan was made in an earlier month
+ * (month change), or when a day of a month in the plan ended and is not in its file yet.
+ */
+export function runningPdfDue(
+  book: TimeBook,
+  last:
+    | { plan: PdfSlotPlan; infos: readonly { month: MonthKey; days: readonly DateKey[] }[] }
+    | undefined,
+  today: DateKey,
+): boolean {
+  if (!last) return true;
+  if (last.plan.month !== monthOf(today)) return true;
+  return [last.plan.previous, last.plan.current].some((use) => {
+    if (!use) return false;
+    const info = last.infos.find((i) => i.month === use.month);
+    return daysToAppend(book, use.month, info?.days ?? [], today).length > 0;
+  });
 }
 
 /** Whether something must be saved before the app can be used again (the blocking prompt). */
