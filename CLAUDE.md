@@ -29,6 +29,7 @@ tested without any UI. Private companion repo: `Zeiterfassung-privat` (data only
 
 ## Key rules
 
+- **Branches (workspace rule, 2026-11-28):** own branch from `test` → pull request into `test` (check „Tests“ green) → Tobias tries that state and says so → pull request `test` into `main`. Nothing else goes into `main`; merges on Tobias' word.
 - **Public repo (AGPLv3 + commercial):** no real data, no private project names, in files and in git
   history. Real times, names and exports never belong here (`.gitignore` blocks `*.pdf`, `*.xml`,
   `*.zeiterfassung.json`).
